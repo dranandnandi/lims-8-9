@@ -1,13 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { Zap, Camera, BarChart3, CheckCircle, AlertTriangle, TrendingUp, Target, Layers, Settings, Upload, FileText, RotateCcw, User, Palette } from 'lucide-react';
+import { Zap, Camera, BarChart3, CheckCircle, AlertTriangle, Target, Layers, Settings, Upload, FileText, RotateCcw, User, Palette } from 'lucide-react';
 import { database, supabase, uploadFile, generateFilePath } from '../../utils/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface Patient {
   id: string;
   name: string;
-  color_code?: string;
-  color_name?: string;
+  emergency_phone?: string;
+  blood_group?: string;
+  allergies?: string;
 }
 
 const PipetteValidation: React.FC = () => {
@@ -229,10 +230,7 @@ const PipetteValidation: React.FC = () => {
           originalBase64Image: visionData.originalBase64Image,
           base64Image,
           pipetteDetails: pipetteInfo,
-          expectedColor: selectedPatient ? {
-            code: selectedPatient.color_code,
-            name: selectedPatient.color_name
-          } : null
+          expectedColor: null // Color assignment moved to order level
         }
       });
       
@@ -362,28 +360,22 @@ const PipetteValidation: React.FC = () => {
                 </select>
               )}
               
-              {/* Selected Patient Color Display */}
-              {selectedPatient && selectedPatient.color_code && (
+              {/* Selected Patient Info Display */}
+              {selectedPatient && (
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                   <h4 className="text-sm font-medium text-purple-900 mb-3 flex items-center">
                     <Palette className="h-4 w-4 mr-2" />
-                    Patient Color Assignment
+                    Selected Patient
                   </h4>
                   <div className="flex items-center space-x-4">
-                    <div 
-                      className="w-16 h-16 rounded-lg flex items-center justify-center text-white text-xs font-bold shadow-md" 
-                      style={{ backgroundColor: selectedPatient.color_code }}
-                    >
-                      {selectedPatient.color_name}
-                    </div>
                     <div className="flex-1">
-                      <div className="text-sm text-purple-700">Expected Color</div>
-                      <div className="font-medium text-purple-900">{selectedPatient.color_name}</div>
-                      <div className="text-xs text-purple-600">{selectedPatient.color_code}</div>
+                      <div className="text-sm text-purple-700">Patient Information</div>
+                      <div className="font-medium text-purple-900">{selectedPatient.name}</div>
+                      <div className="text-xs text-purple-600">ID: {selectedPatient.id}</div>
                     </div>
                   </div>
                   <div className="mt-3 p-2 bg-white border border-purple-200 rounded text-xs text-purple-800">
-                    <strong>Validation Note:</strong> The AI will verify that the pipette tip or sample container matches this assigned color code.
+                    <strong>Note:</strong> Color validation will be handled at the order level when tests are requested.
                   </div>
                 </div>
               )}

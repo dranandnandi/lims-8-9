@@ -369,7 +369,20 @@ const OrderForm: React.FC<OrderFormProps> = ({ onClose, onSubmit, preSelectedPat
                     age: parseInt(newPatient.age, 10),
                     gender: newPatient.gender,
                     phone: newPatient.phone.trim(),
-                    email: newPatient.email?.trim() || null
+                    email: newPatient.email?.trim() || null,
+                    // Add required fields with default values
+                    address: '',
+                    city: '',
+                    state: '',
+                    pincode: '',
+                    emergency_contact: null,
+                    emergency_phone: null,
+                    blood_group: null,
+                    allergies: null,
+                    medical_history: null,
+                    total_tests: 0,
+                    is_active: true,
+                    referring_doctor: null
                   });
                   if (error) {
                     alert('Failed to create patient');

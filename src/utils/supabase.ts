@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { getAssignedColor, generateOrderSampleId, getOrderAssignedColor, generateOrderQRCodeData } from './colorAssignment';
+import { generateOrderSampleId, getOrderAssignedColor, generateOrderQRCodeData } from './colorAssignment';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -175,18 +175,13 @@ export const database = {
       // Generate display_id in format DD-Mon-YYYY-SeqNum
       const display_id = `${dateFormatted}-${sequentialNumber}`;
       
-      // Assign color based on sequential number
-      const { color_code, color_name } = getAssignedColor(sequentialNumber);
-      
-      // Create patient with display_id and color information
+      // Create patient with display_id (color assignment happens at order level)
       const { data, error } = await supabase
         .from('patients')
         .insert([{
           ...patientDetails,
           referring_doctor,
-          display_id,
-          color_code,
-          color_name
+          display_id
         }])
         .select()
         .single();

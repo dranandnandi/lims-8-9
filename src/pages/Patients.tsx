@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Plus, Search, Filter, Edit, Eye, Phone, Mail, QrCode, Palette, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Search, Filter, Edit, Eye, Phone, Mail, QrCode, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { generateQRCodeData, getAssignedColor } from '../utils/colorAssignment';
+import { generateQRCodeData } from '../utils/colorAssignment';
 import PatientForm from '../components/Patients/PatientForm';
 import PatientDetails from '../components/Patients/PatientDetails';
 import PatientTestHistory from '../components/Patients/PatientTestHistory';
@@ -24,8 +24,6 @@ interface Patient {
   blood_group?: string;
   allergies?: string;
   qr_code_data?: string;
-  color_code?: string;
-  color_name?: string;
   medical_history?: string;
   registration_date: string;
   last_visit: string;
@@ -218,7 +216,6 @@ const Patients: React.FC = () => {
       // Generate QR code data
       const qrCodeData = generateQRCodeData({
         id: patient.id,
-        display_id: patient.display_id,
         name: patient.name,
         age: patient.age,
         gender: patient.gender
@@ -406,15 +403,6 @@ const Patients: React.FC = () => {
                       <div className="text-sm font-medium text-gray-900">{patient.name}</div>
                       <div className="text-sm text-gray-500">
                         {patient.display_id ? `Sample ID: ${patient.display_id} • ` : ''}ID: {patient.id} • {patient.age}y • {patient.gender}
-                        {patient.color_name && (
-                          <span className="ml-2 inline-flex items-center">
-                            <div 
-                              className="w-3 h-3 rounded-full mr-1" 
-                              style={{ backgroundColor: patient.color_code }}
-                            ></div>
-                            {patient.color_name}
-                          </span>
-                        )}
                       </div>
                     </div>
                   </td>
@@ -494,13 +482,6 @@ const Patients: React.FC = () => {
                       >
                         <QrCode className="h-4 w-4" />
                       </button>
-                    )}
-                    {patient.color_code && (
-                      <div 
-                        className="inline-block w-4 h-4 rounded-full border border-gray-300" 
-                        style={{ backgroundColor: patient.color_code }}
-                        title={`Color: ${patient.color_name}`}
-                      ></div>
                     )}
                   </td>
                 </tr>
