@@ -32,6 +32,8 @@ interface Order {
   color_code?: string;
   color_name?: string;
   qr_code_data?: string;
+  sample_collected_at?: string;
+  sample_collected_by?: string;
   // Additional computed properties
   totalTests: number;
   completedResults: number;
@@ -275,9 +277,28 @@ const Orders: React.FC = () => {
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
     try {
-  const { data: _updateData, error } = await database.orders.update(orderId, {
-        status: newStatus
-      });
+      // Find the order to validate
+      const order = orders.find(o => o.id === orderId);
+      if (!order) {
+        console.error('Order not found');
+        return;
+      }
+
+      // Workflow validation - prevent skipping required steps
+      const validationResult = validateStatusTransition(order, newStatus);
+      if (!validationResult.allowed) {
+        alert(`Cannot update status: ${validationResult.reason}`);
+        return;
+      }
+
+      // If transitioning to Sample Collection, set the collection timestamp
+      const updateData: any = { status: newStatus };
+      if (newStatus === 'Sample Collection') {
+        updateData.sample_collected_at = new Date().toISOString();
+        updateData.sample_collected_by = user?.email || 'System';
+      }
+
+      const { data: _updateData, error } = await database.orders.update(orderId, updateData);
       
       if (error) {
         console.error('Error updating order status:', error);
@@ -287,7 +308,7 @@ const Orders: React.FC = () => {
       // Update local state
       setOrders(prev => prev.map(order => 
         order.id === orderId 
-          ? { ...order, status: newStatus as Order['status'] }
+          ? { ...order, ...updateData, status: newStatus as Order['status'] }
           : order
       ));
       
@@ -295,6 +316,64 @@ const Orders: React.FC = () => {
       setSelectedOrder(null);
     } catch (err) {
       console.error('Error:', err);
+    }
+  };
+
+  // Workflow validation function
+  const validateStatusTransition = (order: Order, newStatus: string): { allowed: boolean; reason?: string } => {
+    switch (newStatus) {
+      case 'Sample Collection':
+        // Can always mark sample as collected
+        return { allowed: true };
+        
+      case 'In Progress':
+        // Cannot start processing without sample collection
+        if (!order.sample_collected_at) {
+          return { 
+            allowed: false, 
+            reason: 'Sample must be collected before starting laboratory processing. Please mark sample as collected first.' 
+          };
+        }
+        return { allowed: true };
+        
+      case 'Pending Approval':
+        // Cannot submit for approval without being in progress and having sample
+        if (!order.sample_collected_at) {
+          return { 
+            allowed: false, 
+            reason: 'Sample must be collected before submitting for approval.' 
+          };
+        }
+        if (order.status !== 'In Progress') {
+          return { 
+            allowed: false, 
+            reason: 'Order must be in progress before submitting for approval.' 
+          };
+        }
+        return { allowed: true };
+        
+      case 'Completed':
+        // Cannot complete without sample and approval process
+        if (!order.sample_collected_at) {
+          return { 
+            allowed: false, 
+            reason: 'Sample must be collected before completing order.' 
+          };
+        }
+        return { allowed: true };
+        
+      case 'Delivered':
+        // Cannot deliver incomplete orders
+        if (order.status !== 'Completed') {
+          return { 
+            allowed: false, 
+            reason: 'Order must be completed before delivery.' 
+          };
+        }
+        return { allowed: true };
+        
+      default:
+        return { allowed: true };
     }
   };
 
