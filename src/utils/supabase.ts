@@ -1590,6 +1590,103 @@ export const database = {
     }
   },
 
+  packages: {
+    getAll: async () => {
+      const { data, error } = await supabase
+        .from('packages')
+        .select(`
+          id,
+          name,
+          description,
+          price,
+          is_active,
+          created_at,
+          updated_at,
+          lab_id,
+          package_test_groups(
+            test_group_id,
+            test_groups(
+              id,
+              name,
+              code,
+              category,
+              price
+            )
+          )
+        `)
+        .eq('is_active', true)
+        .order('name');
+      return { data, error };
+    },
+
+    getById: async (id: string) => {
+      const { data, error } = await supabase
+        .from('packages')
+        .select(`
+          id,
+          name,
+          description,
+          price,
+          is_active,
+          created_at,
+          updated_at,
+          lab_id,
+          package_test_groups(
+            test_group_id,
+            test_groups(
+              id,
+              name,
+              code,
+              category,
+              price,
+              clinical_purpose,
+              turnaround_time,
+              sample_type,
+              requires_fasting
+            )
+          )
+        `)
+        .eq('id', id)
+        .single();
+      return { data, error };
+    },
+
+    create: async (packageData: any) => {
+      const { data, error } = await supabase
+        .from('packages')
+        .insert([packageData])
+        .select()
+        .single();
+      return { data, error };
+    },
+
+    update: async (id: string, packageData: any) => {
+      const { data, error } = await supabase
+        .from('packages')
+        .update(packageData)
+        .eq('id', id)
+        .select()
+        .single();
+      return { data, error };
+    },
+
+    delete: async (id: string) => {
+      // First delete related package_test_groups
+      await supabase
+        .from('package_test_groups')
+        .delete()
+        .eq('package_id', id);
+
+      // Then delete the package
+      const { error } = await supabase
+        .from('packages')
+        .delete()
+        .eq('id', id);
+      
+      return { error };
+    }
+  },
+
 };
 
 // Database helper functions for attachments

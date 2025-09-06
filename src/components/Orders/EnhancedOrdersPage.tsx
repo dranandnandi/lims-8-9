@@ -12,6 +12,7 @@ interface Order {
   status: string;
   total_amount: number;
   order_date: string;
+  created_at?: string;
   tests: string[];
   can_add_tests?: boolean;
 }
@@ -232,23 +233,58 @@ const EnhancedOrdersPage: React.FC<EnhancedOrdersPageProps> = ({
   const [selectedTests, setSelectedTests] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRange, setSelectedRange] = useState<'today' | 'yesterday' | 'last7' | 'all'>('today');
+  const [isLoadingTests, setIsLoadingTests] = useState(false);
 
   console.log('Orders version of EnhancedOrdersPage is rendering');
 
-  // Mock test data - in real app, fetch from API
-  const mockTests = [
-    { id: 'cbc', name: 'Complete Blood Count (CBC)', price: 350, category: 'Hematology', sample: 'EDTA Blood' },
-    { id: 'lft', name: 'Liver Function Test', price: 450, category: 'Biochemistry', sample: 'Serum' },
-    { id: 'lipid', name: 'Lipid Profile', price: 500, category: 'Biochemistry', sample: 'Serum' },
-    { id: 'thyroid', name: 'Thyroid Function Test', price: 600, category: 'Endocrinology', sample: 'Serum' },
-    { id: 'diabetes', name: 'Diabetes Panel', price: 400, category: 'Biochemistry', sample: 'Serum' },
-    { id: 'kidney', name: 'Kidney Function Test', price: 350, category: 'Biochemistry', sample: 'Serum' },
-    { id: 'iron', name: 'Iron Studies', price: 300, category: 'Hematology', sample: 'Serum' },
-    { id: 'vitamin', name: 'Vitamin Panel', price: 800, category: 'Nutrition', sample: 'Serum' }
-  ];
+  // Fetch tests and packages from database
+  const fetchTestsAndPackages = async () => {
+    setIsLoadingTests(true);
+    try {
+      // Fetch test groups
+      const { data: testGroups, error: testGroupsError } = await database.testGroups.getAll();
+      if (testGroupsError) {
+        console.error('Error fetching test groups:', testGroupsError);
+      }
+
+      // Fetch packages
+      const { data: packages, error: packagesError } = await database.packages.getAll();
+      if (packagesError) {
+        console.error('Error fetching packages:', packagesError);
+      }
+
+      // Transform test groups to match the expected format
+      const transformedTests = testGroups?.map(test => ({
+        id: test.id,
+        name: test.name,
+        price: test.price,
+        category: test.category,
+        sample: test.sample_type,
+        code: test.code,
+        type: 'test'
+      })) || [];
+
+      // Transform packages to match the expected format
+      const transformedPackages = packages?.map(pkg => ({
+        id: pkg.id,
+        name: pkg.name,
+        price: pkg.price,
+        category: 'Package',
+        sample: 'Various',
+        description: pkg.description,
+        type: 'package'
+      })) || [];
+
+      setAvailableTests([...transformedTests, ...transformedPackages]);
+    } catch (error) {
+      console.error('Error fetching tests and packages:', error);
+    } finally {
+      setIsLoadingTests(false);
+    }
+  };
 
   useEffect(() => {
-    setAvailableTests(mockTests);
+    fetchTestsAndPackages();
   }, []);
 
   const filteredTests = availableTests.filter(test =>
@@ -386,8 +422,21 @@ const EnhancedOrdersPage: React.FC<EnhancedOrdersPageProps> = ({
       group.visit_status = allDone ? 'Completed' : anyActive ? 'In Progress' : group.visit_status;
     });
 
-    // Sort orders inside groups (newest first by date string)
-    Object.values(visitGroups).forEach(g => g.orders.sort((a,b) => b.order_date.localeCompare(a.order_date)));
+    // Sort orders inside groups (newest first by created_at timestamp, fallback to order_date)
+    Object.values(visitGroups).forEach(g => {
+      g.orders.sort((a, b) => {
+        // Use created_at if available, otherwise fall back to order_date
+        const timeA = a.created_at || a.order_date;
+        const timeB = b.created_at || b.order_date;
+        
+        // Parse to Date for proper comparison (newest first)
+        const dateA = new Date(timeA);
+        const dateB = new Date(timeB);
+        
+        return dateB.getTime() - dateA.getTime();
+      });
+    });
+    
     // Sort groups by visit_date desc
   return Object.values(visitGroups).sort((a,b) => b.visit_date.localeCompare(a.visit_date));
   }, [orders]);
@@ -727,41 +776,57 @@ const EnhancedOrdersPage: React.FC<EnhancedOrdersPageProps> = ({
 
                 {/* Available Tests */}
                 <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-gray-700 mb-3">Available Tests</h4>
-                  {filteredTests.map((test) => (
-                    <div
-                      key={test.id}
-                      className={`border rounded-lg p-3 cursor-pointer transition-all ${
-                        selectedTests.some(t => t.id === test.id)
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                      onClick={() => toggleTestSelection(test)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <h5 className="text-sm font-medium text-gray-900">{test.name}</h5>
-                            <span className="text-sm font-bold text-green-600">₹{test.price}</span>
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Available Tests & Packages</h4>
+                  {isLoadingTests ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                      <span className="ml-2 text-gray-600">Loading tests...</span>
+                    </div>
+                  ) : filteredTests.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      No tests found matching your search.
+                    </div>
+                  ) : (
+                    filteredTests.map((test) => (
+                      <div
+                        key={test.id}
+                        className={`border rounded-lg p-3 cursor-pointer transition-all ${
+                          selectedTests.some(t => t.id === test.id)
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                        onClick={() => toggleTestSelection(test)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <h5 className="text-sm font-medium text-gray-900">{test.name}</h5>
+                                {test.type === 'package' && (
+                                  <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded-full">Package</span>
+                                )}
+                              </div>
+                              <span className="text-sm font-bold text-green-600">₹{test.price}</span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              {test.category} • {test.sample}
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            {test.category} • {test.sample}
-                          </div>
-                        </div>
-                        <div className="ml-3">
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                            selectedTests.some(t => t.id === test.id)
-                              ? 'bg-blue-500 border-blue-500'
-                              : 'border-gray-300'
-                          }`}>
-                            {selectedTests.some(t => t.id === test.id) && (
-                              <span className="text-white text-xs">✓</span>
-                            )}
+                          <div className="ml-3">
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                              selectedTests.some(t => t.id === test.id)
+                                ? 'bg-blue-500 border-blue-500'
+                                : 'border-gray-300'
+                            }`}>
+                              {selectedTests.some(t => t.id === test.id) && (
+                                <span className="text-white text-xs">✓</span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
 
