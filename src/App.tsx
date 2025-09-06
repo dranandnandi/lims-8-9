@@ -1,0 +1,79 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import ProtectedRoute from './components/Auth/ProtectedRoute';
+import Login from './components/Auth/Login';
+import Signup from './components/Auth/Signup';
+import Layout from './components/Layout/Layout';
+import Dashboard from './pages/Dashboard';
+import Patients from './pages/Patients';
+import Tests from './pages/Tests';
+import Orders from './pages/Orders';
+import Results from './pages/Results';
+import Reports from './pages/Reports';
+import PeripheralSmearDemo from './components/Workflows/PeripheralSmearDemo';
+import Billing from './pages/Billing';
+import CashReconciliation from './pages/CashReconciliation';
+import AITools from './pages/AITools';
+import Settings from './pages/Settings';
+
+const AppRoutes: React.FC = () => {
+  const { user, loading } = useAuth();
+
+  // Show loading state while auth is initializing
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      {/* Public routes */}
+      <Route 
+        path="/login" 
+        element={user ? <Navigate to="/" replace /> : <Login />} 
+      />
+      <Route 
+        path="/signup" 
+        element={user ? <Navigate to="/" replace /> : <Signup />} 
+      />
+      
+      {/* Protected routes */}
+      <Route path="/*" element={
+        <ProtectedRoute>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/patients" element={<Patients />} />
+              <Route path="/tests" element={<Tests />} />
+              <Route path="/orders" element={<Orders />} />
+              <Route path="/results" element={<Results />} />
+              <Route path="/reports" element={<Reports />} />
+              {/* Dev workflow demo route (no DB changes) */}
+              <Route path="/workflow-demo/peripheral-smear" element={<PeripheralSmearDemo />} />
+              <Route path="/billing" element={<Billing />} />
+              <Route path="/cash-reconciliation" element={<CashReconciliation />} />
+              <Route path="/ai-tools" element={<AITools />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </Layout>
+        </ProtectedRoute>
+      } />
+    </Routes>
+  );
+};
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <AppRoutes />
+      </Router>
+    </AuthProvider>
+  );
+}
+
+export default App;
