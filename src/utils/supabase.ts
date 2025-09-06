@@ -458,7 +458,8 @@ export const database = {
         sampleId: order.sample_id,
         orderDate: order.order_date,
         colorCode: order.color_code,
-        colorName: order.color_name
+        colorName: order.color_name,
+        patientName: order.patient_name
       });
 
       // Update order with QR code data

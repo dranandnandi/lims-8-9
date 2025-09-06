@@ -753,6 +753,9 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                             </div>
                             <div className="text-xs text-gray-600">Scan to access sample information</div>
                           </div>
+                          {/* QR Code Data section hidden for cleaner UI */}
+                          {/* Uncomment below to show technical QR data for debugging */}
+                          {/* 
                           <div className="bg-gray-50 border border-green-300 rounded-lg p-3">
                             <div className="text-xs font-medium text-gray-700 mb-2">QR Code Data:</div>
                             <div className="text-xs font-mono text-gray-600 bg-white border rounded p-2 max-h-20 overflow-y-auto">
@@ -762,6 +765,7 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                               })()}
                             </div>
                           </div>
+                          */}
                         </div>
                       ) : (
                         <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
