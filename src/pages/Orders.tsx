@@ -106,6 +106,7 @@ const Orders: React.FC = () => {
           orderDate: order.order_date,
           expectedDate: order.expected_date,
           totalAmount: order.total_amount,
+          created_at: order.created_at, // Explicitly preserve created_at for sorting
           tests: order.order_tests ? order.order_tests.map((test: any) => test.test_name) : [],
           patient: order.patients,
           totalTests,

@@ -75,6 +75,21 @@ const PatientVisitCard: React.FC<PatientVisitCardProps> = ({
 
   const primaryOrder = visit.orders.find(o => o.order_type === 'initial') || visit.orders[0];
 
+  // Sort orders by creation time (newest first) right before rendering
+  const sortedOrders = [...visit.orders].sort((a, b) => {
+    const timeA = a.created_at || a.order_date;
+    const timeB = b.created_at || b.order_date;
+    const timestampA = new Date(timeA).getTime();
+    const timestampB = new Date(timeB).getTime();
+    
+    // If timestamps are equal, fallback to ID comparison for consistency
+    if (timestampA === timestampB) {
+      return (b.id || '').localeCompare(a.id || '');
+    }
+    
+    return timestampB - timestampA; // Newest first
+  });
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       {/* Visit Header */}
@@ -146,11 +161,11 @@ const PatientVisitCard: React.FC<PatientVisitCardProps> = ({
         <div className="px-6 py-4">
           <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
             <Users className="h-4 w-4 mr-2" />
-            Order Chain ({visit.orders.length} orders)
+            Order Chain ({sortedOrders.length} orders)
           </h4>
           
           <div className="space-y-3">
-            {visit.orders.map((order) => (
+            {sortedOrders.map((order) => (
               <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center space-x-3">
                   <div className="flex items-center space-x-2">
@@ -429,11 +444,16 @@ const EnhancedOrdersPage: React.FC<EnhancedOrdersPageProps> = ({
         const timeA = a.created_at || a.order_date;
         const timeB = b.created_at || b.order_date;
         
-        // Parse to Date for proper comparison (newest first)
-        const dateA = new Date(timeA);
-        const dateB = new Date(timeB);
+        // Convert to timestamps for reliable sorting (newest first)
+        const timestampA = new Date(timeA).getTime();
+        const timestampB = new Date(timeB).getTime();
         
-        return dateB.getTime() - dateA.getTime();
+        // If timestamps are equal, fallback to ID comparison for consistency
+        if (timestampA === timestampB) {
+          return (b.id || '').localeCompare(a.id || '');
+        }
+        
+        return timestampB - timestampA; // Newest first
       });
     });
     
