@@ -77,17 +77,44 @@ const PatientVisitCard: React.FC<PatientVisitCardProps> = ({
 
   // Sort orders by creation time (newest first) right before rendering
   const sortedOrders = [...visit.orders].sort((a, b) => {
+    // Function to extract sample number from visit_group_id or ID
+    const extractSampleNumber = (order: any) => {
+      // Try to extract number from visit_group_id (e.g., "sample-06-Sep-2025-004" -> 4)
+      const sampleIdMatch = order.visit_group_id?.match(/-(\d+)$/);
+      if (sampleIdMatch) {
+        return parseInt(sampleIdMatch[1]);
+      }
+      
+      // Try to extract number from order.id if it has a pattern
+      const orderIdMatch = order.id?.match(/-(\d+)$/);
+      if (orderIdMatch) {
+        return parseInt(orderIdMatch[1]);
+      }
+      
+      // Fallback to 0 if no number found
+      return 0;
+    };
+    
+    // First try to sort by sample number (newest sample number first)
+    const sampleNumA = extractSampleNumber(a);
+    const sampleNumB = extractSampleNumber(b);
+    
+    if (sampleNumA !== sampleNumB) {
+      return sampleNumB - sampleNumA; // Higher numbers first (newest)
+    }
+    
+    // If sample numbers are same, fallback to timestamp sorting
     const timeA = a.created_at || a.order_date;
     const timeB = b.created_at || b.order_date;
     const timestampA = new Date(timeA).getTime();
     const timestampB = new Date(timeB).getTime();
     
-    // If timestamps are equal, fallback to ID comparison for consistency
-    if (timestampA === timestampB) {
-      return (b.id || '').localeCompare(a.id || '');
+    if (timestampA !== timestampB) {
+      return timestampB - timestampA; // Newest first
     }
     
-    return timestampB - timestampA; // Newest first
+    // Final fallback to ID comparison for consistency
+    return (b.id || '').localeCompare(a.id || '');
   });
 
   return (
@@ -437,23 +464,47 @@ const EnhancedOrdersPage: React.FC<EnhancedOrdersPageProps> = ({
       group.visit_status = allDone ? 'Completed' : anyActive ? 'In Progress' : group.visit_status;
     });
 
-    // Sort orders inside groups (newest first by created_at timestamp, fallback to order_date)
+    // Sort orders inside groups (newest first by sample ID number, fallback to timestamp)
     Object.values(visitGroups).forEach(g => {
       g.orders.sort((a, b) => {
-        // Use created_at if available, otherwise fall back to order_date
+        // Function to extract sample number from visit_group_id or ID
+        const extractSampleNumber = (order: any) => {
+          // Try to extract number from visit_group_id (e.g., "sample-06-Sep-2025-004" -> 4)
+          const sampleIdMatch = order.visit_group_id?.match(/-(\d+)$/);
+          if (sampleIdMatch) {
+            return parseInt(sampleIdMatch[1]);
+          }
+          
+          // Try to extract number from order.id if it has a pattern
+          const orderIdMatch = order.id?.match(/-(\d+)$/);
+          if (orderIdMatch) {
+            return parseInt(orderIdMatch[1]);
+          }
+          
+          // Fallback to 0 if no number found
+          return 0;
+        };
+        
+        // First try to sort by sample number (newest sample number first)
+        const sampleNumA = extractSampleNumber(a);
+        const sampleNumB = extractSampleNumber(b);
+        
+        if (sampleNumA !== sampleNumB) {
+          return sampleNumB - sampleNumA; // Higher numbers first (newest)
+        }
+        
+        // If sample numbers are same, fallback to timestamp sorting
         const timeA = a.created_at || a.order_date;
         const timeB = b.created_at || b.order_date;
-        
-        // Convert to timestamps for reliable sorting (newest first)
         const timestampA = new Date(timeA).getTime();
         const timestampB = new Date(timeB).getTime();
         
-        // If timestamps are equal, fallback to ID comparison for consistency
-        if (timestampA === timestampB) {
-          return (b.id || '').localeCompare(a.id || '');
+        if (timestampA !== timestampB) {
+          return timestampB - timestampA; // Newest first
         }
         
-        return timestampB - timestampA; // Newest first
+        // Final fallback to ID comparison for consistency
+        return (b.id || '').localeCompare(a.id || '');
       });
     });
     
