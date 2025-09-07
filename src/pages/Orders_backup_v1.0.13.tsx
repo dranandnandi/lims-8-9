@@ -7,7 +7,6 @@ import { useAuth } from '../contexts/AuthContext';
 import OrderForm from '../components/Orders/OrderForm';
 import OrderDetailsModal from '../components/Orders/OrderDetailsModal';
 import EnhancedOrders from '../components/Orders/EnhancedOrdersPage';
-import AIUtilityButton from '../components/AITools/AIUtilityButton';
 
 interface ExtractedValue {
   parameter: string;
@@ -65,7 +64,6 @@ const Orders: React.FC = () => {
     awaitingApproval: 0
   });
   const [expandedOrders, setExpandedOrders] = useState<{[key: string]: boolean}>({});
-  const [showStatusDropdowns, setShowStatusDropdowns] = useState<{[key: string]: boolean}>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedCompletion, setSelectedCompletion] = useState('All');
@@ -553,35 +551,13 @@ const Orders: React.FC = () => {
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              // Global AI Analysis functionality
-              console.log('Global AI Analysis clicked');
-            }}
-            className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            title="AI Analysis"
-          >
-            <Brain className="h-5 w-5 mr-2" />
-            AI Analysis
-          </button>
-          <AIUtilityButton
-            context={{
-              placement: 'orders_page'
-            }}
-            variant="secondary"
-            size="md"
-          >
-            AI Tools
-          </AIUtilityButton>
-          <button
-            onClick={() => setShowOrderForm(true)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            {viewMode === 'traditional' ? 'Create Order' : 'New Session'}
-          </button>
-        </div>
+        <button
+          onClick={() => setShowOrderForm(true)}
+          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <Plus className="h-5 w-5 mr-2" />
+          {viewMode === 'traditional' ? 'Create Order' : 'New Session'}
+        </button>
       </div>
 
       {/* Conditional Rendering based on view mode */}
@@ -805,94 +781,39 @@ const Orders: React.FC = () => {
                               {order.patient?.name || order.patient_name}
                             </div>
                             <div className="text-lg text-gray-700 font-medium">
-                              {order.patient?.age || 'N/A'}y • {order.patient?.gender || 'N/A'} • ID: {(order as any).sample_id || order.patient_id || 'N/A'}
+                              {order.patient?.age || 'N/A'}y • {order.patient?.gender || 'N/A'} • ID: {order.patient_id || 'N/A'}
                             </div>
                           </div>
                         </div>
                       </div>
                       
-                      {/* Order Status (COLOR-CODED & CLICKABLE) */}
+                      {/* Order Status (COLOR-CODED) */}
                       <div className="flex items-center space-x-3">
-                        <div className="relative">
-                          {(() => {
-                            const getStatusDisplay = (status: string) => {
-                              switch (status) {
-                                case 'Sample Collection':
-                                  return { emoji: '🟡', text: 'Pending Collection', color: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200' };
-                                case 'In Progress':
-                                  return { emoji: '🔵', text: 'In Process', color: 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200' };
-                                case 'Completed':
-                                  return { emoji: '🟢', text: 'Complete', color: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200' };
-                                case 'Delivered':
-                                  return { emoji: '✅', text: 'Delivered', color: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200' };
-                                case 'Pending Approval':
-                                  return { emoji: '🟠', text: 'Pending Approval', color: 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200' };
-                                default:
-                                  return { emoji: '⚪', text: status, color: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200' };
-                              }
-                            };
-                            const statusInfo = getStatusDisplay(order.status);
-                            const isDropdownOpen = showStatusDropdowns[order.id] || false;
-                            const statusOptions = [
-                              { value: 'Sample Collection', label: '🟡 Pending Collection' },
-                              { value: 'In Progress', label: '🔵 In Process' },
-                              { value: 'Pending Approval', label: '🟠 Pending Approval' },
-                              { value: 'Completed', label: '🟢 Complete' },
-                              { value: 'Delivered', label: '✅ Delivered' }
-                            ];
-                            
-                            return (
-                              <div className="relative">
-                                <button
-                                  onClick={() => setShowStatusDropdowns(prev => ({
-                                    ...prev,
-                                    [order.id]: !prev[order.id]
-                                  }))}
-                                  className={`inline-flex items-center px-4 py-2 rounded-lg text-lg font-bold border-2 transition-colors cursor-pointer ${statusInfo.color}`}
-                                >
-                                  <span className="text-xl mr-2">{statusInfo.emoji}</span>
-                                  {statusInfo.text}
-                                  <ChevronDown className="h-4 w-4 ml-2" />
-                                </button>
-                                
-                                {isDropdownOpen && (
-                                  <>
-                                    {/* Backdrop to close dropdown */}
-                                    <div 
-                                      className="fixed inset-0 z-40" 
-                                      onClick={() => setShowStatusDropdowns(prev => ({
-                                        ...prev,
-                                        [order.id]: false
-                                      }))}
-                                    />
-                                    <div className="absolute right-0 top-full mt-1 w-64 bg-white border-2 border-gray-200 rounded-lg shadow-lg z-50">
-                                      <div className="p-2">
-                                        <div className="text-xs text-gray-600 mb-2 font-medium">Update Status:</div>
-                                        {statusOptions.map((option) => (
-                                          <button
-                                            key={option.value}
-                                            onClick={() => {
-                                              handleUpdateOrderStatus(order.id, option.value);
-                                              setShowStatusDropdowns(prev => ({
-                                                ...prev,
-                                                [order.id]: false
-                                              }));
-                                            }}
-                                            className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-100 transition-colors ${
-                                              order.status === option.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-                                            }`}
-                                          >
-                                            {option.label}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
+                        {(() => {
+                          const getStatusDisplay = (status: string) => {
+                            switch (status) {
+                              case 'Sample Collection':
+                                return { emoji: '🟡', text: 'Pending Collection', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
+                              case 'In Progress':
+                                return { emoji: '🔵', text: 'In Process', color: 'bg-blue-100 text-blue-800 border-blue-200' };
+                              case 'Completed':
+                                return { emoji: '🟢', text: 'Complete', color: 'bg-green-100 text-green-800 border-green-200' };
+                              case 'Delivered':
+                                return { emoji: '✅', text: 'Delivered', color: 'bg-gray-100 text-gray-800 border-gray-200' };
+                              case 'Pending Approval':
+                                return { emoji: '🟠', text: 'Pending Approval', color: 'bg-orange-100 text-orange-800 border-orange-200' };
+                              default:
+                                return { emoji: '⚪', text: status, color: 'bg-gray-100 text-gray-800 border-gray-200' };
+                            }
+                          };
+                          const statusInfo = getStatusDisplay(order.status);
+                          return (
+                            <span className={`inline-flex items-center px-4 py-2 rounded-lg text-lg font-bold border-2 ${statusInfo.color}`}>
+                              <span className="text-xl mr-2">{statusInfo.emoji}</span>
+                              {statusInfo.text}
+                            </span>
+                          );
+                        })()}
                         
                         <button
                           onClick={() => setExpandedOrders(prev => ({
@@ -1084,29 +1005,12 @@ const Orders: React.FC = () => {
                             View Full Details
                           </button>
                           
-                          <button
-                            onClick={() => {
-                              // AI Analysis functionality - placeholder for existing feature
-                              console.log('AI Analysis clicked for order:', order.id);
-                            }}
+                          <button 
                             className="flex items-center px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                            title="AI Analysis"
                           >
                             <Brain className="h-4 w-4 mr-2" />
                             AI Analysis
                           </button>
-                          
-                          <AIUtilityButton
-                            context={{
-                              orderId: order.id,
-                              patientId: order.patient_id,
-                              placement: 'order_detail'
-                            }}
-                            variant="secondary"
-                            size="sm"
-                          >
-                            AI Tools
-                          </AIUtilityButton>
                         </div>
                         
                         <div className="flex items-center space-x-2">
