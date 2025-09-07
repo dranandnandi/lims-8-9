@@ -198,45 +198,39 @@ const PatientVisitCard: React.FC<PatientVisitCardProps> = ({
             Order Chain ({sortedOrders.length} orders)
           </h4>
           
-          <div className="space-y-2">
+          <div className="space-y-3">
             {sortedOrders.map((order) => (
-              <div key={order.id} className="flex items-center p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
-                {/* Left: Order Icon & ID */}
-                <div className="flex items-center space-x-2 min-w-0 flex-shrink-0">
-                  <span className="text-lg">{getOrderTypeIcon(order.order_type)}</span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
-                      Order #{order.id.substring(0, 8)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {order.order_type} {order.sample_id && `• ${order.sample_id.split('-').pop()}`}
+              <div key={order.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">{getOrderTypeIcon(order.order_type)}</span>
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">
+                        Order #{order.id.substring(0, 8)}... 
+                        <span className="ml-2 text-xs text-gray-500">
+                          ({order.order_type})
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        {order.tests.length} tests • ₹{order.total_amount.toLocaleString()}
+                      </div>
+                      {order.tests.length > 0 && (
+                        <div className="text-xs text-blue-600 mt-1">
+                          <strong>Tests:</strong> {order.tests.join(', ')}
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-
-                {/* Center: Tests & Amount */}
-                <div className="flex-1 px-4 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-gray-600 truncate">
-                      {order.tests.length} tests • ₹{order.total_amount.toLocaleString()}
-                    </div>
-                    {order.parent_order_id && (
-                      <span className="text-xs text-gray-500 bg-white px-1 py-0.5 rounded border ml-2 flex-shrink-0">
-                        ↳ Linked
-                      </span>
-                    )}
-                  </div>
-                  {order.tests.length > 0 && (
-                    <div className="text-xs text-blue-600 mt-1 truncate">
-                      <strong>Tests:</strong> {order.tests.slice(0, 2).join(', ')}
-                      {order.tests.length > 2 && <span className="text-gray-500"> +{order.tests.length - 2}</span>}
+                  
+                  {order.parent_order_id && (
+                    <div className="text-xs text-gray-500 bg-white px-2 py-1 rounded">
+                      ↳ Linked to parent
                     </div>
                   )}
                 </div>
                 
-                {/* Right: Status & Actions */}
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(order.status)}`}>
+                <div className="flex items-center space-x-2">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
                     {order.status}
                   </span>
                   
