@@ -116,8 +116,31 @@ const Orders: React.FC = () => {
           };
         });
         
-        // Sort orders by creation date (newest first)
+        // Sort orders by sample ID number (newest first), fallback to creation date
         const sortedOrders = formattedOrders.sort((a, b) => {
+          // Function to extract sample number from sample_id
+          const extractSampleNumber = (order: any) => {
+            const sampleIdMatch = order.sample_id?.match(/-(\d+)$/);
+            if (sampleIdMatch) {
+              const num = parseInt(sampleIdMatch[1]);
+              console.log(`Sample ID ${order.sample_id} -> number: ${num}`);
+              return num;
+            }
+            console.log(`No sample number found for order ${order.id}, using 0`);
+            return 0;
+          };
+          
+          // First try to sort by sample number (HIGHEST numbers first - newest)
+          const sampleNumA = extractSampleNumber(a);
+          const sampleNumB = extractSampleNumber(b);
+          
+          if (sampleNumA !== sampleNumB) {
+            const result = sampleNumB - sampleNumA; // Higher numbers first (4, 3, 2, 1)
+            console.log(`Sorting: ${sampleNumB} - ${sampleNumA} = ${result}`);
+            return result;
+          }
+          
+          // Fallback to creation date (newest first)
           const dateA = new Date(a.order_date);
           const dateB = new Date(b.order_date);
           return dateB.getTime() - dateA.getTime();
@@ -159,13 +182,6 @@ const Orders: React.FC = () => {
 
   const statuses = ['All', 'Order Created', 'Sample Collection', 'In Progress', 'Pending Approval', 'Completed', 'Delivered'];
   const completionFilters = ['All', 'All Done', 'Mostly Done', 'Pending', 'Awaiting Approval'];
-
-  const toggleOrderExpansion = (orderId: string) => {
-    setExpandedOrders(prev => ({
-      ...prev,
-      [orderId]: !prev[orderId]
-    }));
-  };
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.patient_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -228,11 +244,36 @@ const Orders: React.FC = () => {
     });
     
     // Convert to array and sort (today first, then by date descending)
-    return Object.values(groups).sort((a, b) => {
+    const sortedGroups = Object.values(groups).sort((a, b) => {
       if (a.isToday) return -1;
       if (b.isToday) return 1;
       return b.date.getTime() - a.date.getTime();
     });
+    
+    // Sort orders within each date group by sample number (newest first)
+    sortedGroups.forEach(group => {
+      group.orders.sort((a, b) => {
+        // Function to extract sample number from sample_id
+        const extractSampleNumber = (order: any) => {
+          const sampleIdMatch = order.sample_id?.match(/-(\d+)$/);
+          return sampleIdMatch ? parseInt(sampleIdMatch[1]) : 0;
+        };
+        
+        const sampleNumA = extractSampleNumber(a);
+        const sampleNumB = extractSampleNumber(b);
+        
+        if (sampleNumA !== sampleNumB) {
+          return sampleNumB - sampleNumA; // Higher sample numbers first (004 before 002)
+        }
+        
+        // Fallback to order date
+        const dateA = new Date(a.order_date);
+        const dateB = new Date(b.order_date);
+        return dateB.getTime() - dateA.getTime();
+      });
+    });
+    
+    return sortedGroups;
   };
 
   const orderGroups = groupOrdersByDate();
@@ -470,18 +511,6 @@ const Orders: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    const colors = {
-      'Order Created': 'bg-purple-100 text-purple-800',
-      'Sample Collection': 'bg-blue-100 text-blue-800',
-      'In Progress': 'bg-orange-100 text-orange-800',
-      'Pending Approval': 'bg-yellow-100 text-yellow-800',
-      'Completed': 'bg-green-100 text-green-800',
-      'Delivered': 'bg-gray-100 text-gray-800',
-    };
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
-  };
-
   const getPriorityColor = (priority: string) => {
     const colors = {
       'Normal': 'bg-gray-100 text-gray-800',
@@ -489,25 +518,6 @@ const Orders: React.FC = () => {
       'STAT': 'bg-red-100 text-red-800',
     };
     return colors[priority as keyof typeof colors] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'Order Created':
-        return <Calendar className="h-4 w-4" />;
-      case 'Sample Collection':
-        return <TestTube className="h-4 w-4" />;
-      case 'In Progress':
-        return <ClockIcon className="h-4 w-4" />;
-      case 'Pending Approval':
-        return <AlertTriangle className="h-4 w-4" />;
-      case 'Completed':
-        return <CheckCircle className="h-4 w-4" />;
-      case 'Delivered':
-        return <User className="h-4 w-4" />;
-      default:
-        return <Calendar className="h-4 w-4" />;
-    }
   };
 
   return (
@@ -741,263 +751,294 @@ const Orders: React.FC = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {group.orders.map((order) => {
+                  <div className="space-y-4">
+                    {group.orders.map((order, index) => {
               const isExpanded = expandedOrders[order.id];
               const completionPercentage = order.totalTests > 0 ? (order.completedResults / order.totalTests) * 100 : 0;
               
               return (
                 <div 
                   key={order.id} 
-                  className={`bg-white border-2 rounded-lg p-4 hover:shadow-md transition-all ${
+                  className={`w-full p-4 bg-white border-2 rounded-lg hover:shadow-md transition-all ${
                     order.abnormalResults > 0 ? 'border-red-200 bg-red-50' : 'border-gray-200'
                   }`}
                 >
-                  {/* Header with Order ID and Critical Flag */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2">
-                        {order.abnormalResults > 0 && (
-                          <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                        )}
-                        <h4 className={`font-bold text-lg ${order.abnormalResults > 0 ? 'text-red-900' : 'text-gray-900'}`}>
-                          Order #{order.id.slice(-6)}
-                        </h4>
-                        {order.abnormalResults > 0 && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            {order.abnormalResults} Abnormal
-                          </span>
-                        )}
-                        {order.hasAttachments && (
-                          <div title="Has attachments">
-                            <Paperclip className="h-4 w-4 text-blue-500" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        Ordered: {new Date(order.order_date).toLocaleDateString()} • Expected: {new Date(order.expected_date).toLocaleDateString()}
-                      </div>
-                    </div>
-                    
-                    {/* Status and Priority Chips */}
-                    <div className="flex flex-col items-end space-y-1">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
-                        {getStatusIcon(order.status)}
-                        <span className="ml-1">{order.status}</span>
-                      </span>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getPriorityColor(order.priority)}`}>
-                        {order.priority}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Patient Information */}
-                  <div className="flex items-center space-x-2 mb-3">
-                    <User className="h-4 w-4 text-blue-500" />
-                    <span className="font-medium text-gray-900">
-                      {order.patient?.name || order.patient_name} • {order.patient?.age || 'N/A'}y • {order.patient?.gender || 'N/A'}
-                    </span>
-                  </div>
-
-                  {/* Sample Tracking Information */}
-                  {(order as any).sample_id && (
-                    <div className="bg-blue-50 rounded-lg p-3 mb-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <div 
-                            className="w-6 h-6 rounded-full border-2 border-gray-300"
-                            style={{ backgroundColor: (order as any).color_code }}
-                            title={`Sample Color: ${(order as any).color_name}`}
-                          />
-                          <div className="text-sm">
-                            <div className="font-medium text-gray-900">Sample ID: {(order as any).sample_id}</div>
-                            <div className="text-gray-600">{(order as any).color_name}</div>
-                          </div>
-                        </div>
-                        {(order as any).qr_code_data && (
-                          <div className="text-xs text-gray-500">
-                            QR: {(order as any).sample_id}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Tests Summary */}
-                  <div className="bg-gray-50 rounded-lg p-3 mb-3">
-                    <div className="flex items-center justify-between text-sm mb-2">
+                  {/* Technician-Optimized Horizontal Layout */}
+                  <div className="space-y-3">
+                    {/* Top Row: Patient Identifier (MOST PROMINENT) */}
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
-                        <div className="flex items-center">
-                          <TestTube className="h-4 w-4 text-gray-400 mr-1" />
-                          <span className="text-gray-600">{order.tests.length} tests</span>
+                        {/* Sequence Number */}
+                        <div className="flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-700 rounded-full font-bold text-sm border-2 border-blue-200">
+                          {index + 1}
                         </div>
-                        {order.abnormalResults > 0 && (
-                          <div className="flex items-center">
-                            <AlertTriangle className="h-4 w-4 text-red-500 mr-1" />
-                            <span className="text-red-600 font-medium">{order.abnormalResults} abnormal</span>
+                        
+                        {/* PATIENT NAME (BIG & BOLD) */}
+                        <div className="flex items-center space-x-3">
+                          <User className="h-6 w-6 text-blue-600" />
+                          <div>
+                            <div className="text-2xl font-bold text-gray-900">
+                              {order.patient?.name || order.patient_name}
+                            </div>
+                            <div className="text-lg text-gray-700 font-medium">
+                              {order.patient?.age || 'N/A'}y • {order.patient?.gender || 'N/A'} • ID: {order.patient_id || 'N/A'}
+                            </div>
                           </div>
-                        )}
-                        <div className="flex items-center">
-                          <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
-                          <span className="text-green-600">{order.completedResults}/{order.totalTests} done</span>
                         </div>
                       </div>
                       
-                      <div className="text-lg font-bold text-green-600">₹{order.total_amount.toLocaleString()}</div>
+                      {/* Order Status (COLOR-CODED) */}
+                      <div className="flex items-center space-x-3">
+                        {(() => {
+                          const getStatusDisplay = (status: string) => {
+                            switch (status) {
+                              case 'Sample Collection':
+                                return { emoji: '🟡', text: 'Pending Collection', color: 'bg-yellow-100 text-yellow-800 border-yellow-200' };
+                              case 'In Progress':
+                                return { emoji: '🔵', text: 'In Process', color: 'bg-blue-100 text-blue-800 border-blue-200' };
+                              case 'Completed':
+                                return { emoji: '🟢', text: 'Complete', color: 'bg-green-100 text-green-800 border-green-200' };
+                              case 'Delivered':
+                                return { emoji: '✅', text: 'Delivered', color: 'bg-gray-100 text-gray-800 border-gray-200' };
+                              case 'Pending Approval':
+                                return { emoji: '🟠', text: 'Pending Approval', color: 'bg-orange-100 text-orange-800 border-orange-200' };
+                              default:
+                                return { emoji: '⚪', text: status, color: 'bg-gray-100 text-gray-800 border-gray-200' };
+                            }
+                          };
+                          const statusInfo = getStatusDisplay(order.status);
+                          return (
+                            <span className={`inline-flex items-center px-4 py-2 rounded-lg text-lg font-bold border-2 ${statusInfo.color}`}>
+                              <span className="text-xl mr-2">{statusInfo.emoji}</span>
+                              {statusInfo.text}
+                            </span>
+                          );
+                        })()}
+                        
+                        <button
+                          onClick={() => setExpandedOrders(prev => ({
+                            ...prev,
+                            [order.id]: !prev[order.id]
+                          }))}
+                          className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                          title="View details"
+                        >
+                          {isExpanded ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                        </button>
+                      </div>
                     </div>
-                    
-                    {/* Progress Bar */}
-                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                      <div 
-                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${completionPercentage}%` }}
-                      />
-                    </div>
-                    
-                    {/* Test Names */}
-                    <div className="flex flex-wrap gap-1">
-                      {order.tests.slice(0, 3).map((test, index) => (
-                        <span key={index} className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-800">
-                          {test}
-                        </span>
-                      ))}
-                      {order.tests.length > 3 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600">
-                          +{order.tests.length - 3} more
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Expandable Details */}
-                    {isExpanded && order.results && order.results.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-gray-200">
-                        <div className="space-y-2">
-                          {order.results.slice(0, 5).map((result: any, index: number) => (
-                            <div key={index} className="text-xs">
-                              <div className="font-medium text-gray-700">{result.test_name || 'Test Result'}</div>
-                              {result.result_values && result.result_values.length > 0 && (
-                                <div className="ml-2 space-y-1">
-                                  {result.result_values.slice(0, 3).map((value: any, vIndex: number) => (
-                                    <div key={vIndex} className="flex items-center justify-between">
-                                      <span className="text-gray-600">{value.parameter}</span>
-                                      <div className="flex items-center space-x-1">
-                                        <span className="font-medium">{value.value} {value.unit}</span>
-                                        {value.flag && (
-                                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                                            value.flag === 'H' ? 'bg-red-100 text-red-800' :
-                                            value.flag === 'L' ? 'bg-blue-100 text-blue-800' :
-                                            'bg-orange-100 text-orange-800'
-                                          }`}>
-                                            {value.flag}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                  {result.result_values.length > 3 && (
-                                    <div className="text-gray-500 text-center">
-                                      +{result.result_values.length - 3} more parameters
-                                    </div>
-                                  )}
+
+                    {/* Second Row: Order Info & Test Names (ALWAYS VISIBLE) */}
+                    <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                      <div className="flex items-center space-x-6">
+                        {/* Order ID & Sample Tube Info */}
+                        <div className="flex items-center space-x-4">
+                          <div>
+                            <div className="text-sm text-gray-600">Order</div>
+                            <div className="font-bold text-gray-900">#{order.id.slice(-6)}</div>
+                          </div>
+                          
+                          {/* Sample Tube Type (COLORED BADGE) */}
+                          {(order as any).sample_id && (
+                            <div className="flex items-center space-x-2">
+                              <div 
+                                className="w-8 h-8 rounded-full border-2 border-white shadow-md flex items-center justify-center text-white font-bold text-xs"
+                                style={{ backgroundColor: (order as any).color_code || '#8B5CF6' }}
+                                title={`Sample Tube: ${(order as any).color_name || 'Purple'}`}
+                              >
+                                {((order as any).color_name || 'EDTA').charAt(0)}
+                              </div>
+                              <div>
+                                <div className="text-xs text-gray-600">Sample</div>
+                                <div className="font-mono font-bold text-gray-900 text-sm">
+                                  {(order as any).sample_id.split('-').pop()}
                                 </div>
-                              )}
-                            </div>
-                          ))}
-                          {order.results.length > 5 && (
-                            <div className="text-xs text-gray-500 text-center">
-                              +{order.results.length - 5} more results
+                              </div>
                             </div>
                           )}
                         </div>
+                        
+                        {/* Test Names (ALWAYS VISIBLE) */}
+                        <div className="flex-1">
+                          <div className="text-sm text-gray-600 mb-1">Tests ({order.tests.length})</div>
+                          <div className="flex flex-wrap gap-1">
+                            {order.tests.map((test, index) => (
+                              <span key={index} className="inline-flex items-center px-2 py-1 rounded text-sm bg-blue-100 text-blue-800 font-medium">
+                                {test}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    )}
+                      
+                      {/* Amount & Dates */}
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-green-600">₹{order.total_amount?.toLocaleString() || '0'}</div>
+                        <div className="text-sm text-gray-600">
+                          <div>Ordered: {new Date(order.order_date).toLocaleDateString()}</div>
+                          <div className={`${new Date(order.expected_date) < new Date() ? 'text-red-600 font-bold' : ''}`}>
+                            Expected: {new Date(order.expected_date).toLocaleDateString()}
+                            {new Date(order.expected_date) < new Date() && ' ⚠️ OVERDUE'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                     
-                    {/* Toggle Details Button */}
-                    {order.results && order.results.length > 0 && (
-                      <button
-                        onClick={() => toggleOrderExpansion(order.id)}
-                        className="w-full mt-2 flex items-center justify-center text-xs text-gray-500 hover:text-gray-700 transition-colors"
-                      >
-                        {isExpanded ? (
-                          <>
-                            <ChevronUp className="h-3 w-3 mr-1" />
-                            Hide Details
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown className="h-3 w-3 mr-1" />
-                            Show Details ({order.results.length} results)
-                          </>
-                        )}
-                      </button>
+                    {/* Progress Bar (if in process) */}
+                    {order.status === 'In Progress' && (
+                      <div className="bg-blue-50 rounded-lg p-2">
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="text-blue-700 font-medium">Progress</span>
+                          <span className="text-blue-700">{Math.round(completionPercentage)}% Complete</span>
+                        </div>
+                        <div className="w-full bg-blue-200 rounded-full h-3">
+                          <div 
+                            className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+                            style={{ width: `${completionPercentage}%` }}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
 
-                  {/* Entry and Doctor Information */}
-                  <div className="text-xs text-gray-600 mb-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <User className="h-3 w-3 mr-1" />
-                        <span>Dr. {order.doctor}</span>
+                  {/* Expandable Content Section - Technician Focus */}
+                  {isExpanded && (
+                    <div className="mt-4 pt-4 border-t border-gray-200 bg-gray-50 rounded-lg p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        
+                        {/* Sample Information Card (PROMINENT) */}
+                        <div className="bg-white rounded-lg p-4 border-2 border-purple-200">
+                          <div className="flex items-center space-x-3 mb-3">
+                            <div 
+                              className="w-12 h-12 rounded-full border-4 border-white shadow-lg flex items-center justify-center text-white font-bold text-lg"
+                              style={{ backgroundColor: (order as any).color_code || '#8B5CF6' }}
+                            >
+                              {((order as any).color_name || 'EDTA').charAt(0)}
+                            </div>
+                            <div>
+                              <div className="text-lg font-bold text-gray-900">
+                                {(order as any).color_name || 'Purple EDTA'}
+                              </div>
+                              <div className="text-sm text-gray-600">Sample Tube</div>
+                            </div>
+                          </div>
+                          {(order as any).sample_id && (
+                            <div className="bg-purple-50 rounded p-2">
+                              <div className="text-xs text-purple-600 font-medium">SAMPLE ID</div>
+                              <div className="font-mono font-bold text-purple-900 text-lg">
+                                {(order as any).sample_id}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Test Progress Card */}
+                        <div className="bg-white rounded-lg p-4 border-2 border-blue-200">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center space-x-2">
+                              <TestTube className="h-5 w-5 text-blue-600" />
+                              <span className="font-bold text-gray-900">Test Progress</span>
+                            </div>
+                            {order.abnormalResults > 0 && (
+                              <span className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-bold">
+                                ⚠️ {order.abnormalResults} Abnormal
+                              </span>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span>Completed</span>
+                              <span className="font-bold">{order.completedResults || 0}/{order.totalTests || order.tests.length}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-4">
+                              <div 
+                                className={`h-4 rounded-full transition-all duration-300 ${
+                                  completionPercentage === 100 ? 'bg-green-600' : 
+                                  completionPercentage > 50 ? 'bg-blue-600' : 'bg-yellow-600'
+                                }`}
+                                style={{ width: `${completionPercentage}%` }}
+                              />
+                            </div>
+                            <div className="text-xs text-gray-600">
+                              {Math.round(completionPercentage)}% Complete
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Critical Info Card */}
+                        <div className="bg-white rounded-lg p-4 border-2 border-orange-200">
+                          <div className="flex items-center space-x-2 mb-3">
+                            <Calendar className="h-5 w-5 text-orange-600" />
+                            <span className="font-bold text-gray-900">Critical Info</span>
+                          </div>
+                          
+                          <div className="space-y-2 text-sm">
+                            <div>
+                              <span className="text-gray-600">Doctor:</span>
+                              <span className="font-medium ml-1">{order.doctor || 'Dr. TBD'}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Priority:</span>
+                              <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${getPriorityColor(order.priority)}`}>
+                                {order.priority || 'Normal'}
+                              </span>
+                            </div>
+                            {order.hasAttachments && (
+                              <div className="flex items-center space-x-1">
+                                <Paperclip className="h-4 w-4 text-blue-500" />
+                                <span className="text-blue-600 font-medium">Has Attachments</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center">
-                        <Calendar className="h-3 w-3 mr-1" />
-                        <span>{new Date(order.order_date).toLocaleDateString()}</span>
+                      
+                      {/* Secondary Action Buttons */}
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => setSelectedOrder(order)}
+                            className="flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Full Details
+                          </button>
+                          
+                          <button 
+                            className="flex items-center px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                          >
+                            <Brain className="h-4 w-4 mr-2" />
+                            AI Analysis
+                          </button>
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          {order.status === 'Pending Approval' && (
+                            <button 
+                              onClick={() => handleUpdateOrderStatus(order.id, 'Completed')}
+                              className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                              title="Approve Order"
+                            >
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Approve
+                            </button>
+                          )}
+                          
+                          {order.status === 'Completed' && (
+                            <button 
+                              onClick={() => handleMarkAsDelivered(order.id)}
+                              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                              title="Mark as Delivered"
+                            >
+                              <Send className="h-4 w-4 mr-2" />
+                              Mark Delivered
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="flex items-center px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                      >
-                        <Eye className="h-3 w-3 mr-1" />
-                        View
-                      </button>
-                      
-                      <button 
-                        className="flex items-center px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors"
-                      >
-                        <Brain className="h-3 w-3 mr-1" />
-                        AI
-                      </button>
-                      
-                      {order.hasAttachments && (
-                        <button 
-                          className="flex items-center px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors"
-                        >
-                          <Paperclip className="h-3 w-3 mr-1" />
-                          Attach
-                        </button>
-                      )}
-                    </div>
-                    
-                    {/* Quick Actions */}
-                    <div className="flex items-center space-x-1">
-                      {order.status === 'Pending Approval' && (
-                        <button 
-                          onClick={() => handleUpdateOrderStatus(order.id, 'Completed')}
-                          className="p-1 text-green-600 hover:text-green-800 hover:bg-green-100 rounded transition-colors"
-                          title="Approve Order"
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                        </button>
-                      )}
-                      
-                      {order.status === 'Completed' && (
-                        <button 
-                          onClick={() => handleMarkAsDelivered(order.id)}
-                          className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-colors"
-                          title="Mark as Delivered"
-                        >
-                          <Send className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  )}
                 </div>
               );
             })}
