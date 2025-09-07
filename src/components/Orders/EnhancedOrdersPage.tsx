@@ -615,11 +615,37 @@ const EnhancedOrdersPage: React.FC<EnhancedOrdersPageProps> = ({
     });
     
     // Convert to array and sort (today first, then by date descending)
-    return Object.values(groups).sort((a, b) => {
+    const sortedGroups = Object.values(groups).sort((a, b) => {
       if (a.isToday) return -1;
       if (b.isToday) return 1;
       return b.date.getTime() - a.date.getTime();
     });
+    
+    // Sort visits within each date group by sample number (newest first)
+    sortedGroups.forEach(group => {
+      group.visits.sort((a, b) => {
+        // Extract highest sample number from each visit's orders
+        const getMaxSampleNumber = (visit: PatientVisit) => {
+          const numbers = visit.orders.map(order => {
+            const sampleIdMatch = order.sample_id?.match(/-(\d+)$/);
+            return sampleIdMatch ? parseInt(sampleIdMatch[1]) : 0;
+          });
+          return Math.max(...numbers, 0);
+        };
+        
+        const maxA = getMaxSampleNumber(a);
+        const maxB = getMaxSampleNumber(b);
+        
+        if (maxA !== maxB) {
+          return maxB - maxA; // Higher sample numbers first (004 before 002)
+        }
+        
+        // Fallback to visit date/time
+        return b.visit_date.localeCompare(a.visit_date);
+      });
+    });
+    
+    return sortedGroups;
   };
 
   const visitGroups = groupVisitsByDate();
