@@ -65,7 +65,7 @@ interface OrderGroup {
 
 type ReportRow = {
   order_id: string;
-  report_status: string;
+  status: string;
   generated_at: string;
 };
 
@@ -159,7 +159,7 @@ const Reports: React.FC = () => {
         if (orderIds.length > 0) {
           const { data: reportsData } = await supabase
             .from('reports')
-            .select('order_id, report_status, generated_at')
+            .select('order_id, status, generated_at')
             .in('order_id', orderIds);
           existingReports = (reportsData as ReportRow[]) || [];
         }
@@ -170,7 +170,7 @@ const Reports: React.FC = () => {
         const enhancedData: ApprovedResult[] = (data as ApprovedResult[]).map((result) => ({
           ...result,
           has_report: reportMap.has(result.order_id),
-          report_status: reportMap.get(result.order_id)?.report_status,
+          report_status: reportMap.get(result.order_id)?.status,
           report_generated_at: reportMap.get(result.order_id)?.generated_at,
         }));
 
@@ -266,16 +266,14 @@ const Reports: React.FC = () => {
             {
               order_id: orderId,
               patient_id: group.patient_id,
-              report_type: 'final',
-              report_status: 'generated',
-              generated_by: userId,
+              status: 'Generated',
               generated_at: new Date().toISOString(),
-              report_data: {
+              notes: JSON.stringify({
                 test_names: group.test_names,
                 sample_ids: group.sample_ids,
                 verified_at: group.verified_at,
                 verified_by: group.verified_by,
-              },
+              }),
             },
             {
               onConflict: 'order_id',
