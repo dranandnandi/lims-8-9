@@ -625,9 +625,10 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
       console.log('No report record exists, creating one...');
       
       // Get order details to populate report
+      // Remove test_names from the query as it doesn't exist in orders table
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
-        .select('patient_id, doctor, test_names')
+        .select('patient_id, doctor')  // Removed test_names
         .eq('id', orderId)
         .single();
       
