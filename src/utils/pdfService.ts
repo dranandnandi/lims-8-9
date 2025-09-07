@@ -107,6 +107,16 @@ export const getLabTemplate = (id: string): LabTemplate => {
   return templates.find(t => t.id === id) || defaultLabTemplate;
 };
 
+// Authentication helper - ensures user is authenticated before operations
+const ensureAuthenticated = async (): Promise<string | null> => {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error || !session) {
+    console.error('User not authenticated:', error);
+    return null;
+  }
+  return session.user.id;
+};
+
 // Enhanced HTML template generator
 const generateUniversalHTMLTemplate = (data: ReportData): string => {
   const { patient, report, testResults, interpretation } = data;
@@ -503,13 +513,41 @@ export const generatePDFWithBrowser = (reportData: ReportData): string => {
   return url;
 };
 
-// Save PDF to Supabase storage
+// Enhanced Save PDF to Supabase storage with authentication check
 export const savePDFToStorage = async (pdfBlob: Blob, orderId: string): Promise<string> => {
   console.log('Saving PDF to Supabase storage...');
+  
+  // Ensure authenticated
+  const userId = await ensureAuthenticated();
+  if (!userId) {
+    throw new Error('User must be authenticated to save PDFs');
+  }
   
   try {
     const fileName = `reports/${orderId}_${Date.now()}.pdf`;
     
+    // First, try to delete any existing file with same pattern (cleanup old versions)
+    const existingFiles = await supabase.storage
+      .from('reports')
+      .list('reports', {
+        search: orderId
+      });
+    
+    if (existingFiles.data && existingFiles.data.length > 0) {
+      console.log(`Found ${existingFiles.data.length} existing files for order ${orderId}`);
+      // Optional: Delete old files to save storage space
+      // Uncomment if you want to keep only the latest version
+      /*
+      for (const file of existingFiles.data) {
+        if (file.name.includes(orderId)) {
+          await supabase.storage.from('reports').remove([`reports/${file.name}`]);
+          console.log(`Deleted old file: ${file.name}`);
+        }
+      }
+      */
+    }
+    
+    // Upload new file
     const { data, error } = await supabase.storage
       .from('reports')
       .upload(fileName, pdfBlob, {
@@ -519,14 +557,16 @@ export const savePDFToStorage = async (pdfBlob: Blob, orderId: string): Promise<
       });
 
     if (error) {
+      console.error('Storage upload error details:', error);
       throw error;
     }
 
+    // Get public URL
     const { data: { publicUrl } } = supabase.storage
       .from('reports')
       .getPublicUrl(fileName);
 
-    console.log('PDF saved to storage:', publicUrl);
+    console.log('PDF saved to storage successfully:', publicUrl);
     return publicUrl;
   } catch (error) {
     console.error('Failed to save PDF to storage:', error);
@@ -549,6 +589,7 @@ export const updateReportWithPDFInfo = async (orderId: string, pdfUrl: string): 
       .eq('order_id', orderId);
 
     if (error) {
+      console.error('Database update error:', error);
       throw error;
     }
 
@@ -559,18 +600,79 @@ export const updateReportWithPDFInfo = async (orderId: string, pdfUrl: string): 
   }
 };
 
-// Main PDF generation function with comprehensive error handling
+// Main PDF generation function with comprehensive error handling and authentication
 export async function generateAndSavePDFReport(orderId: string, reportData: ReportData): Promise<string | null> {
-  console.log('generateAndSavePDFReport called for:', orderId);
+  console.log('generateAndSavePDFReport called for order:', orderId);
+  
+  // Ensure user is authenticated
+  const userId = await ensureAuthenticated();
+  if (!userId) {
+    console.error('User must be authenticated to generate reports');
+    alert('Please login to generate reports');
+    return null;
+  }
   
   try {
-    // Check if PDF already exists
-    const { data: existingReport } = await supabase
+    // First, ensure a report record exists
+    let { data: existingReport, error: selectError } = await supabase
       .from('reports')
-      .select('pdf_url, pdf_generated_at')
+      .select('id, pdf_url, pdf_generated_at, status')
       .eq('order_id', orderId)
-      .single();
+      .maybeSingle(); // Use maybeSingle to avoid errors when no record exists
 
+    // If no report exists, create one
+    if (!existingReport) {
+      console.log('No report record exists, creating one...');
+      
+      // Get order details to populate report
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('patient_id, doctor, test_names')
+        .eq('id', orderId)
+        .single();
+      
+      if (orderError || !orderData) {
+        console.error('Failed to fetch order data:', orderError);
+        alert('Order not found. Please check the order ID.');
+        return null;
+      }
+      
+      // Create report record
+      const { data: newReport, error: insertError } = await supabase
+        .from('reports')
+        .insert({
+          order_id: orderId,
+          patient_id: orderData.patient_id,
+          doctor: orderData.doctor || 'Unknown',
+          status: 'pending',
+          generated_date: new Date().toISOString(),
+          report_type: 'Laboratory Report',
+          report_status: 'generating'
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('Failed to create report record:', insertError);
+        // Check if it's a unique constraint violation
+        if (insertError.code === '23505') {
+          // Report already exists, try to fetch it again
+          const { data: retryReport } = await supabase
+            .from('reports')
+            .select('id, pdf_url, pdf_generated_at, status')
+            .eq('order_id', orderId)
+            .single();
+          existingReport = retryReport;
+        } else {
+          alert('Failed to create report record. Please try again.');
+          return null;
+        }
+      } else {
+        existingReport = newReport;
+      }
+    }
+
+    // Check if PDF already exists and is valid
     if (existingReport?.pdf_url) {
       console.log('PDF already exists:', existingReport.pdf_url);
       
@@ -578,6 +680,7 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
       try {
         const response = await fetch(existingReport.pdf_url, { method: 'HEAD' });
         if (response.ok) {
+          console.log('Existing PDF is valid');
           return existingReport.pdf_url;
         }
       } catch (error) {
@@ -585,6 +688,7 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
       }
     }
 
+    console.log('Generating new PDF...');
     let pdfUrl: string | null = null;
     let pdfBlob: Blob | null = null;
 
@@ -593,10 +697,12 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
       pdfUrl = await generatePDFWithAPI(reportData);
       
       if (pdfUrl && pdfUrl.includes('pdf.co')) {
+        console.log('Downloading PDF from PDF.co...');
         // Download PDF from PDF.co and convert to blob
         const response = await fetch(pdfUrl);
         if (response.ok) {
           pdfBlob = await response.blob();
+          console.log('PDF blob created from PDF.co, size:', pdfBlob.size);
         }
       }
     } catch (error) {
@@ -605,47 +711,61 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
 
     // Fallback to browser generation if API failed
     if (!pdfUrl || !pdfBlob) {
+      console.log('Using browser fallback for PDF generation...');
       pdfUrl = generatePDFWithBrowser(reportData);
       if (pdfUrl.startsWith('blob:')) {
         const response = await fetch(pdfUrl);
         pdfBlob = await response.blob();
+        console.log('PDF blob created from browser, size:', pdfBlob.size);
       }
     }
 
     if (!pdfBlob) {
       console.error('Failed to generate PDF blob');
+      alert('Failed to generate PDF. Please try again.');
       return null;
     }
 
     // Save to Supabase storage
+    console.log('Saving PDF to storage...');
     const storageUrl = await savePDFToStorage(pdfBlob, orderId);
     
     // Update database
+    console.log('Updating database with PDF URL...');
     await updateReportWithPDFInfo(orderId, storageUrl);
 
+    console.log('PDF generation completed successfully');
     return storageUrl;
   } catch (error) {
     console.error('PDF generation and save failed:', error);
+    alert('An error occurred while generating the PDF. Please try again.');
     return null;
   }
 }
 
 // View PDF report (opens in new tab)
 export async function viewPDFReport(orderId: string, reportData: ReportData): Promise<string | null> {
-  console.log('viewPDFReport called for:', orderId);
+  console.log('viewPDFReport called for order:', orderId);
   
   try {
     const pdfUrl = await generateAndSavePDFReport(orderId, reportData);
+    if (!pdfUrl) {
+      console.error('No PDF URL returned');
+      return null;
+    }
+    
+    console.log('PDF URL ready for viewing:', pdfUrl);
     return pdfUrl;
   } catch (error) {
     console.error('View PDF error:', error);
+    alert('Failed to view PDF report');
     return null;
   }
 }
 
 // Download PDF report
 export async function downloadPDFReport(orderId: string, reportData: ReportData): Promise<boolean> {
-  console.log('downloadPDFReport called for:', orderId);
+  console.log('downloadPDFReport called for order:', orderId);
   
   try {
     const pdfUrl = await generateAndSavePDFReport(orderId, reportData);
@@ -654,21 +774,37 @@ export async function downloadPDFReport(orderId: string, reportData: ReportData)
       return false;
     }
 
-    // Create download link
+    console.log('Initiating download from URL:', pdfUrl);
+    
+    // Handle blob URLs differently
+    if (pdfUrl.startsWith('blob:')) {
+      // For blob URLs, open in new window
+      window.open(pdfUrl, '_blank');
+      return true;
+    }
+    
+    // For regular URLs, create download link
     const link = document.createElement('a');
     link.href = pdfUrl;
     link.download = `Report_${reportData.patient.name.replace(/\s+/g, '_')}_${orderId}.pdf`;
     link.target = '_blank';
     
-    // Trigger download
+    // Some browsers require the link to be in the DOM
     document.body.appendChild(link);
+    
+    // Trigger download
     link.click();
-    document.body.removeChild(link);
+    
+    // Clean up
+    setTimeout(() => {
+      document.body.removeChild(link);
+    }, 100);
     
     console.log('Download initiated successfully');
     return true;
   } catch (error) {
     console.error('Download failed:', error);
+    alert('Failed to download PDF report');
     return false;
   }
 }
@@ -693,9 +829,13 @@ export const generateSampleReportData = (template: LabTemplate = defaultLabTempl
       { parameter: 'SGOT (AST)', result: '72', unit: 'U/L', referenceRange: '15–37', flag: 'H' },
       { parameter: 'SGPT (ALT)', result: '105', unit: 'U/L', referenceRange: '16–63', flag: 'H' },
       { parameter: 'Total Bilirubin', result: '1.9', unit: 'mg/dL', referenceRange: '0.2–1', flag: 'H' },
+      { parameter: 'Direct Bilirubin', result: '1.1', unit: 'mg/dL', referenceRange: '0.0–0.3', flag: 'H' },
       { parameter: 'Albumin', result: '2.8', unit: 'g/dL', referenceRange: '3.4–5', flag: 'L' },
+      { parameter: 'Total Protein', result: '6.2', unit: 'g/dL', referenceRange: '6.0–8.3', flag: '' },
+      { parameter: 'ALP', result: '120', unit: 'U/L', referenceRange: '40–150', flag: '' },
+      { parameter: 'GGT', result: '85', unit: 'U/L', referenceRange: '10–50', flag: 'H' },
     ],
-    interpretation: 'Liver enzymes are elevated, and total bilirubin is above the normal limit. Suggestive of hepatic stress. Clinical correlation advised.',
+    interpretation: 'Liver enzymes (AST, ALT, GGT) are significantly elevated. Bilirubin levels are increased with predominant direct fraction. Low albumin suggests impaired synthetic function. These findings are suggestive of hepatocellular injury with cholestatic pattern. Clinical correlation and further evaluation recommended.',
     template,
   };
 };
@@ -703,9 +843,11 @@ export const generateSampleReportData = (template: LabTemplate = defaultLabTempl
 // Utility function to download PDF from URL
 export const downloadPDFFromURL = async (url: string, filename: string): Promise<void> => {
   try {
+    console.log('Downloading PDF from URL:', url);
+    
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error('Failed to download PDF');
+      throw new Error(`Failed to download PDF: ${response.statusText}`);
     }
     
     const blob = await response.blob();
@@ -718,9 +860,47 @@ export const downloadPDFFromURL = async (url: string, filename: string): Promise
     link.click();
     document.body.removeChild(link);
     
-    window.URL.revokeObjectURL(downloadUrl);
+    // Clean up the blob URL
+    setTimeout(() => {
+      window.URL.revokeObjectURL(downloadUrl);
+    }, 100);
+    
+    console.log('PDF download completed');
   } catch (error) {
     console.error('Error downloading PDF:', error);
     throw error;
   }
+};
+
+// Function to test PDF generation without saving to database
+export const testPDFGeneration = async (): Promise<void> => {
+  console.log('Testing PDF generation...');
+  
+  try {
+    const sampleData = generateSampleReportData();
+    const pdfUrl = await generatePDFWithAPI(sampleData);
+    
+    if (pdfUrl) {
+      console.log('Test PDF generated successfully:', pdfUrl);
+      window.open(pdfUrl, '_blank');
+    } else {
+      console.error('Test PDF generation failed');
+    }
+  } catch (error) {
+    console.error('Test PDF generation error:', error);
+  }
+};
+
+// Export all functions and interfaces
+export default {
+  generateAndSavePDFReport,
+  viewPDFReport,
+  downloadPDFReport,
+  generateSampleReportData,
+  downloadPDFFromURL,
+  saveLabTemplate,
+  getLabTemplates,
+  getLabTemplate,
+  defaultLabTemplate,
+  testPDFGeneration
 };
