@@ -66,7 +66,7 @@ interface OrderGroup {
 type ReportRow = {
   order_id: string;
   status: string;
-  generated_at: string;
+  generated_date: string;
 };
 
 type PreparedReport = {
@@ -159,7 +159,7 @@ const Reports: React.FC = () => {
         if (orderIds.length > 0) {
           const { data: reportsData } = await supabase
             .from('reports')
-            .select('order_id, status, generated_at')
+            .select('order_id, status, generated_date')
             .in('order_id', orderIds);
           existingReports = (reportsData as ReportRow[]) || [];
         }
@@ -171,7 +171,7 @@ const Reports: React.FC = () => {
           ...result,
           has_report: reportMap.has(result.order_id),
           report_status: reportMap.get(result.order_id)?.status,
-          report_generated_at: reportMap.get(result.order_id)?.generated_at,
+          report_generated_at: reportMap.get(result.order_id)?.generated_date,
         }));
 
         // Filter by search
@@ -267,7 +267,7 @@ const Reports: React.FC = () => {
               order_id: orderId,
               patient_id: group.patient_id,
               status: 'Generated',
-              generated_at: new Date().toISOString(),
+              generated_date: new Date().toISOString(),
               notes: JSON.stringify({
                 test_names: group.test_names,
                 sample_ids: group.sample_ids,
