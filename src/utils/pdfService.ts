@@ -524,12 +524,13 @@ export const savePDFToStorage = async (pdfBlob: Blob, orderId: string): Promise<
   }
   
   try {
-    const fileName = `reports/${orderId}_${Date.now()}.pdf`;
+    // Fix: Don't include "reports/" in the fileName as Supabase adds it automatically
+    const fileName = `${orderId}_${Date.now()}.pdf`;
     
     // First, try to delete any existing file with same pattern (cleanup old versions)
     const existingFiles = await supabase.storage
       .from('reports')
-      .list('reports', {
+      .list('', {  // Empty string for root of bucket
         search: orderId
       });
     
@@ -540,7 +541,7 @@ export const savePDFToStorage = async (pdfBlob: Blob, orderId: string): Promise<
       /*
       for (const file of existingFiles.data) {
         if (file.name.includes(orderId)) {
-          await supabase.storage.from('reports').remove([`reports/${file.name}`]);
+          await supabase.storage.from('reports').remove([file.name]);
           console.log(`Deleted old file: ${file.name}`);
         }
       }
