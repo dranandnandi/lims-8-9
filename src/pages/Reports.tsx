@@ -12,7 +12,8 @@ import {
   startOfMonth,
   endOfMonth,
 } from 'date-fns';
-import { generateAndSavePDFReport, viewPDFReport, downloadPDFReport } from '../utils/pdfService';
+import { generateAndSavePDFReport, viewPDFReport } from '../utils/pdfService';
+import { downloadPDF } from '../utils/pdfGenerator';
 
 type DateFilter = 'today' | 'yesterday' | 'week' | 'month' | 'all';
 
@@ -380,12 +381,16 @@ const Reports: React.FC = () => {
       const reportData = await prepareReportData(group);
       console.log('Report data prepared for download:', reportData);
       
-      // Download PDF (will generate if doesn't exist)
-      const success = await downloadPDFReport(orderId, reportData);
-      console.log('Download result:', success);
+      // Generate and save PDF first to get the URL
+      const pdfUrl = await generateAndSavePDFReport(orderId, reportData);
+      console.log('PDF URL for download:', pdfUrl);
       
-      if (!success) {
-        alert('Failed to generate or download PDF report');
+      if (pdfUrl) {
+        // Use the downloadPDF function from pdfGenerator
+        const filename = `report_${orderId}_${Date.now()}.pdf`;
+        await downloadPDF(pdfUrl, filename);
+      } else {
+        alert('Failed to generate PDF report');
       }
     } catch (error) {
       console.error('Download failed:', error);
