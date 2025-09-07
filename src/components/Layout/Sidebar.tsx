@@ -11,7 +11,8 @@ import {
   Brain,
   Settings,
   X,
-  Activity
+  Activity,
+  CheckCircle2
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -24,6 +25,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard, category: 'core' },
   { name: 'Orders', href: '/orders', icon: ClipboardList, category: 'core' },
   { name: 'Results Entry', href: '/results', icon: Activity, category: 'core' },
+  { name: 'Results Verification', href: '/results-verification', icon: CheckCircle2, category: 'core' },
   { name: 'Reports', href: '/reports', icon: FileText, category: 'core' }, // Moved after Results Entry per request
   
   // Patient & Sample Management

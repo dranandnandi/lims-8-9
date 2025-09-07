@@ -1,239 +1,669 @@
-// Clean rebuilt Reports page with date grouping (Today first), filters, bulk actions, preview modal.
-import React, { useEffect, useState } from 'react';
-import { FileText, Download, Eye, Send, Calendar, User, Printer, Search, X, MessageCircle, Phone } from 'lucide-react';
-import { generateAndDownloadReport, generateSampleReportData } from '../utils/pdfGenerator';
-import { database } from '../utils/supabase';
+'use client';
 
-interface Report {
-  id: string;
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { supabase } from '../utils/supabase';
+import { FileText, Download, Eye, Search, RefreshCw } from 'lucide-react';
+import {
+  format,
+  startOfDay,
+  endOfDay,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+} from 'date-fns';
+import { generateAndSavePDFReport, viewPDFReport, downloadPDFReport } from '../utils/pdfService';
+
+type DateFilter = 'today' | 'yesterday' | 'week' | 'month' | 'all';
+
+interface ApprovedResult {
+  result_id: string;
+  order_id: string;
   patient_id: string;
-  result_id: string | null;
-  status: string; // Generated | Printed | Delivered
-  generated_date: string; // ISO yyyy-mm-dd
+  patient_name: string;
+  test_name: string;
+  status: string;
+  verification_status: string;
+  verified_by: string;
+  verified_at: string;
+  review_comment: string;
+  entered_by: string;
+  entered_date: string;
+  reviewed_by: string;
+  reviewed_date: string;
+  sample_id: string;
+  order_date: string;
   doctor: string;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-  test_name?: string;
-  report_type?: string;
-  patients?: { name?: string; email?: string; phone?: string };
+  patient_full_name: string;
+  age: number;
+  gender: string;
+  phone: string;
+  attachment_id?: string;
+  attachment_url?: string;
+  attachment_type?: string;
+  attachment_name?: string;
+
+  // enriched fields (optional at runtime)
+  has_report?: boolean;
+  report_status?: string;
+  report_generated_at?: string;
 }
 
+interface OrderGroup {
+  order_id: string;
+  patient_id: string;
+  patient_full_name: string;
+  age: number;
+  gender: string;
+  order_date: string;
+  sample_ids: string[];
+  verified_at: string; // latest among contained results
+  verified_by: string; // from latest
+  test_names: string[];
+  results: ApprovedResult[]; // raw rows
+}
+
+type ReportRow = {
+  order_id: string;
+  report_status: string;
+  generated_at: string;
+};
+
+type PreparedReport = {
+  patient: {
+    name: string;
+    id: string;
+    age: number;
+    gender: string;
+    referredBy: string;
+  };
+  report: {
+    reportId: string;
+    collectionDate: string;
+    reportDate: string;
+    reportType: string;
+  };
+  testResults: {
+    parameter: string;
+    result: string;
+    unit: string;
+    referenceRange: string;
+    flag?: string;
+  }[];
+  interpretation: string;
+};
+
 const Reports: React.FC = () => {
-  const [reports, setReports] = useState<Report[]>([]);
+  const [approvedResults, setApprovedResults] = useState<ApprovedResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('All');
-  const [selectedDoctor, setSelectedDoctor] = useState('All');
-  const [selectedTestType, setSelectedTestType] = useState('All');
-  const [selectedDateRange, setSelectedDateRange] = useState('All');
-  const [selectedReports, setSelectedReports] = useState<Set<string>>(new Set());
-  const [showBulkActions, setShowBulkActions] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
-  const [downloading, setDownloading] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const { data, error } = await database.reports.getAll();
-        if (error) throw error;
-        const mapped = (data || []).map((r: any) => ({
-          ...r,
-            test_name: r.results?.test_name || r.test_name || 'Test',
-            report_type: r.report_type || 'Standard'
-        }));
-        setReports(mapped);
-      } catch (e: any) {
-        setError(e.message || 'Failed to load reports');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
-
-  const statuses = ['All','Generated','Printed','Delivered'];
-  const doctors = ['All', ...Array.from(new Set(reports.map(r=>r.doctor).filter(Boolean)))];
-  const testTypes = ['All', ...Array.from(new Set(reports.map(r=>r.report_type || 'Standard').filter(Boolean)))];
-  const dateRanges = ['All','Today','Yesterday','Last 7 Days','Last 30 Days'];
-
-  const filtered = reports.filter(r => {
-    let ok = true;
-    if (searchTerm) {
-      const t = searchTerm.toLowerCase();
-      const match = [
-        r.test_name?.toLowerCase().includes(t),
-        r.id.toLowerCase().includes(t),
-        r.patients?.name?.toLowerCase().includes(t),
-        r.patients?.email?.toLowerCase().includes(t)
-      ].some(Boolean);
-      ok = ok && match;
-    }
-    if (selectedStatus !== 'All') ok = ok && r.status === selectedStatus;
-    if (selectedDoctor !== 'All') ok = ok && r.doctor === selectedDoctor;
-    if (selectedTestType !== 'All') ok = ok && (r.report_type || 'Standard') === selectedTestType;
-    if (selectedDateRange !== 'All') {
-      const d = new Date(r.generated_date);
-      const today = new Date();
-      const diffDays = (today.getTime() - d.getTime())/86400000;
-      if (selectedDateRange === 'Today') ok = d.toDateString() === today.toDateString();
-      if (selectedDateRange === 'Yesterday') { const y = new Date(); y.setDate(y.getDate()-1); ok = d.toDateString() === y.toDateString(); }
-      if (selectedDateRange === 'Last 7 Days') ok = diffDays < 7;
-      if (selectedDateRange === 'Last 30 Days') ok = diffDays < 30;
-    }
-    return ok;
+  const [filters, setFilters] = useState<{
+    dateFilter: DateFilter;
+    search: string;
+    status: 'all';
+  }>({
+    dateFilter: 'today',
+    search: '',
+    status: 'all',
   });
 
-  interface Group { key:string; date:Date; reports:Report[]; isToday:boolean }
-  const groups: Group[] = (() => {
-    const today = new Date();
-    const todayKey = today.toISOString().split('T')[0];
-    const map: Record<string,{date:Date; reports:Report[]}> = { [todayKey]: { date: today, reports: [] } };
-    filtered.forEach(r => { const d = new Date(r.generated_date); const k = d.toISOString().split('T')[0]; if(!map[k]) map[k] = { date:d, reports:[] }; map[k].reports.push(r); });
-    return Object.entries(map).map(([k,v]) => ({ key:k, date:v.date, reports:v.reports, isToday:k===todayKey }))
-      .sort((a,b) => { if(a.isToday) return -1; if(b.isToday) return 1; return b.date.getTime()-a.date.getTime(); });
-  })();
+  // Selection now at order level
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
 
-  const shortId = (id:string) => id.slice(0,4).toUpperCase();
-  const statusBadge = (s:string) => s==='Delivered' ? 'bg-green-100 text-green-700' : s==='Printed' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700';
-  const patientInfo = (r:Report) => r.patients?.name || r.patient_id;
+  // Load approved results
+  const loadApprovedResults = useCallback(async () => {
+    try {
+      setLoading(true);
 
-  const toggleSelect = (id:string) => setSelectedReports(prev => { const next = new Set(prev); next.has(id)?next.delete(id):next.add(id); setShowBulkActions(next.size>0); return next; });
-  const toggleSelectAll = () => { if(selectedReports.size===filtered.length){ setSelectedReports(new Set()); setShowBulkActions(false);} else { setSelectedReports(new Set(filtered.map(r=>r.id))); setShowBulkActions(true);} };
+      // Get date range based on filter
+      let dateRange = { start: new Date(), end: new Date() };
+      const now = new Date();
 
-  const downloadReport = async (id:string) => { setDownloading(p=>new Set(p).add(id)); try { const sample = generateSampleReportData(); await generateAndDownloadReport(sample); } finally { setDownloading(p=>{ const n=new Set(p); n.delete(id); return n; }); } };
-  const sendReport = async (id:string) => { await downloadReport(id); setReports(prev => prev.map(r=> r.id===id? { ...r, status:'Delivered'}:r)); };
-  const printReport = async (id:string) => { await downloadReport(id); setReports(prev => prev.map(r=> r.id===id? { ...r, status:'Printed'}:r)); };
-  const bulkDownload = async () => { for(const id of selectedReports) await downloadReport(id); };
-  const bulkEmail = async () => { for(const id of selectedReports) await sendReport(id); };
+      switch (filters.dateFilter) {
+        case 'today':
+          dateRange.start = startOfDay(now);
+          dateRange.end = endOfDay(now);
+          break;
+        case 'yesterday': {
+          const yesterday = new Date(now);
+          yesterday.setDate(yesterday.getDate() - 1);
+          dateRange.start = startOfDay(yesterday);
+          dateRange.end = endOfDay(yesterday);
+          break;
+        }
+        case 'week':
+          dateRange.start = startOfWeek(now);
+          dateRange.end = endOfWeek(now);
+          break;
+        case 'month':
+          dateRange.start = startOfMonth(now);
+          dateRange.end = endOfMonth(now);
+          break;
+        case 'all':
+          dateRange.start = new Date(2000, 0, 1);
+          dateRange.end = new Date(2100, 0, 1);
+          break;
+      }
 
-  if (loading) return <div className="p-8 text-center">Loading reports...</div>;
-  if (error) return <div className="p-4 bg-red-100 text-red-700 rounded">{error}</div>;
+      const { data, error } = await supabase
+        .from('view_approved_results')
+        .select('*')
+        .gte('verified_at', dateRange.start.toISOString())
+        .lte('verified_at', dateRange.end.toISOString())
+        .order('verified_at', { ascending: false });
+
+      if (!error && data) {
+        // Load existing reports to check which orders already have reports
+        let existingReports: ReportRow[] = [];
+        const orderIds = data.map((r: ApprovedResult) => r.order_id).filter(Boolean);
+
+        if (orderIds.length > 0) {
+          const { data: reportsData } = await supabase
+            .from('reports')
+            .select('order_id, report_status, generated_at')
+            .in('order_id', orderIds);
+          existingReports = (reportsData as ReportRow[]) || [];
+        }
+
+        const reportMap = new Map(existingReports.map((r) => [r.order_id, r]));
+
+        // Add report status to each result
+        const enhancedData: ApprovedResult[] = (data as ApprovedResult[]).map((result) => ({
+          ...result,
+          has_report: reportMap.has(result.order_id),
+          report_status: reportMap.get(result.order_id)?.report_status,
+          report_generated_at: reportMap.get(result.order_id)?.generated_at,
+        }));
+
+        // Filter by search
+        let filtered = enhancedData;
+        if (filters.search) {
+          const searchLower = filters.search.toLowerCase();
+          filtered = enhancedData.filter(
+            (result) =>
+              result.patient_full_name.toLowerCase().includes(searchLower) ||
+              result.test_name.toLowerCase().includes(searchLower) ||
+              result.sample_id.toLowerCase().includes(searchLower) ||
+              result.order_id.toLowerCase().includes(searchLower),
+          );
+        }
+
+        setApprovedResults(filtered);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Error loading approved results:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
+
+  useEffect(() => {
+    loadApprovedResults();
+  }, [loadApprovedResults]);
+
+  // Derived grouping; ensure only one row per order id
+  const orderGroups: OrderGroup[] = useMemo(() => {
+    const map = new Map<string, OrderGroup>();
+    for (const r of approvedResults) {
+      let group = map.get(r.order_id);
+      if (!group) {
+        group = {
+          order_id: r.order_id,
+          patient_id: r.patient_id,
+          patient_full_name: r.patient_full_name,
+          age: r.age,
+          gender: r.gender,
+          order_date: r.order_date,
+          sample_ids: [r.sample_id],
+          verified_at: r.verified_at,
+          verified_by: r.verified_by,
+          test_names: [r.test_name],
+          results: [r],
+        };
+        map.set(r.order_id, group);
+      } else {
+        group.results.push(r);
+        if (!group.sample_ids.includes(r.sample_id)) group.sample_ids.push(r.sample_id);
+        if (!group.test_names.includes(r.test_name)) group.test_names.push(r.test_name);
+        // If this result verified later, update group metadata
+        if (new Date(r.verified_at) > new Date(group.verified_at)) {
+          group.verified_at = r.verified_at;
+          group.verified_by = r.verified_by;
+        }
+      }
+    }
+    // Return sorted by verified_at desc
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.verified_at).getTime() - new Date(a.verified_at).getTime(),
+    );
+  }, [approvedResults]);
+
+  // Generate / upsert report per selected order
+  const generateReport = async () => {
+    if (selectedOrders.size === 0) {
+      // eslint-disable-next-line no-alert
+      alert('Please select at least one order');
+      return;
+    }
+
+    try {
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+      if (!userId) {
+        // eslint-disable-next-line no-alert
+        alert('User not authenticated');
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const orderId of selectedOrders) {
+        const group = orderGroups.find((g) => g.order_id === orderId);
+        if (!group) continue;
+
+        try {
+          const { error } = await supabase.from('reports').upsert(
+            {
+              order_id: orderId,
+              patient_id: group.patient_id,
+              report_type: 'final',
+              report_status: 'generated',
+              generated_by: userId,
+              generated_at: new Date().toISOString(),
+              report_data: {
+                test_names: group.test_names,
+                sample_ids: group.sample_ids,
+                verified_at: group.verified_at,
+                verified_by: group.verified_by,
+              },
+            },
+            {
+              onConflict: 'order_id',
+              ignoreDuplicates: false, // update existing records
+            },
+          );
+
+          if (error) {
+            // eslint-disable-next-line no-console
+            console.error(`Error generating report for order ${orderId}:`, error);
+            errorCount++;
+          } else {
+            successCount++;
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error(`Exception for order ${orderId}:`, e);
+          errorCount++;
+        }
+      }
+
+      // Clear selections
+      setSelectedOrders(new Set());
+
+      // Show result summary
+      if (successCount > 0 && errorCount === 0) {
+        // eslint-disable-next-line no-alert
+        alert(`Successfully generated ${successCount} report(s)`);
+      } else if (successCount > 0 && errorCount > 0) {
+        // eslint-disable-next-line no-alert
+        alert(`Generated ${successCount} report(s), ${errorCount} failed`);
+      } else {
+        // eslint-disable-next-line no-alert
+        alert('Failed to generate reports. Please try again.');
+      }
+
+      // Refresh the list
+      await loadApprovedResults();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Error generating reports:', e);
+      // eslint-disable-next-line no-alert
+      alert('An error occurred while generating reports');
+    }
+  };
+
+  // Toggle order selection
+  const toggleOrderSelection = (orderId: string) => {
+    const next = new Set(selectedOrders);
+    if (next.has(orderId)) next.delete(orderId);
+    else next.add(orderId);
+    setSelectedOrders(next);
+  };
+
+  const selectAllOrders = () => setSelectedOrders(new Set(orderGroups.map((g) => g.order_id)));
+  const clearSelection = () => setSelectedOrders(new Set());
+
+  // View PDF for a specific order
+  const handleView = async (orderId: string) => {
+    console.log('handleView called for orderId:', orderId);
+    
+    const group = orderGroups.find(g => g.order_id === orderId);
+    if (!group) {
+      console.error('Group not found for orderId:', orderId);
+      alert('Order not found');
+      return;
+    }
+
+    try {
+      console.log('Preparing report data for group:', group);
+      // Prepare report data
+      const reportData = await prepareReportData(group);
+      console.log('Report data prepared:', reportData);
+      
+      // View PDF (will generate if doesn't exist)
+      const pdfUrl = await viewPDFReport(orderId, reportData);
+      console.log('PDF URL received:', pdfUrl);
+      
+      if (pdfUrl) {
+        window.open(pdfUrl, '_blank');
+      } else {
+        alert('Failed to generate or view PDF report');
+      }
+    } catch (error) {
+      console.error('View failed:', error);
+      alert('Failed to view report: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
+  // Download PDF for a specific order (aggregated). Fallback to simple HTML download
+  const handleDownload = async (orderId: string) => {
+    console.log('handleDownload called for orderId:', orderId);
+    
+    const group = orderGroups.find(g => g.order_id === orderId);
+    if (!group) {
+      console.error('Group not found for orderId:', orderId);
+      alert('Order not found');
+      return;
+    }
+
+    try {
+      console.log('Preparing report data for download:', group);
+      // Prepare report data
+      const reportData = await prepareReportData(group);
+      console.log('Report data prepared for download:', reportData);
+      
+      // Download PDF (will generate if doesn't exist)
+      const success = await downloadPDFReport(orderId, reportData);
+      console.log('Download result:', success);
+      
+      if (!success) {
+        alert('Failed to generate or download PDF report');
+      }
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('Download failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
+  // Helper function to prepare report data
+  const prepareReportData = async (group: OrderGroup): Promise<PreparedReport> => {
+    // Fetch analyte-level values for each result (best-effort)
+    const analyteRows: {
+      parameter: string;
+      result: string;
+      unit: string;
+      referenceRange: string;
+      flag?: string;
+    }[] = [];
+
+    for (const r of group.results) {
+      try {
+        // Query result_values table directly instead of using RPC
+        const { data: values, error } = await supabase
+          .from('result_values')
+          .select('parameter, value, unit, reference_range, flag')
+          .eq('result_id', r.result_id);
+
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.warn('Failed to fetch result values for', r.result_id, error);
+        } else {
+          (values || []).forEach((v: any) => {
+            analyteRows.push({
+              parameter: `${r.test_name} - ${v.parameter}`,
+              result: v.value,
+              unit: v.unit || '',
+              referenceRange: v.reference_range || '',
+              flag: v.flag || '',
+            });
+          });
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('get_result_values failed for', r.result_id, e);
+      }
+    }
+
+    if (analyteRows.length === 0) {
+      // minimal row per test if no values
+      group.test_names.forEach((tn) =>
+        analyteRows.push({ parameter: tn, result: '-', unit: '', referenceRange: '' }),
+      );
+    }
+
+    return {
+      patient: {
+        name: group.patient_full_name,
+        id: group.patient_id,
+        age: group.age,
+        gender: group.gender,
+        referredBy: group.results[0]?.doctor || '-',
+      },
+      report: {
+        reportId: group.order_id,
+        collectionDate: group.order_date,
+        reportDate: new Date().toISOString(),
+        reportType: 'Lab Tests',
+      },
+      testResults: analyteRows,
+      interpretation: 'Auto-generated report based on approved lab results.',
+    };
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Reports</h1>
-        <button onClick={()=>{ const sample = generateSampleReportData(); generateAndDownloadReport(sample); }} className="px-4 py-2 border rounded-lg flex items-center gap-2 hover:bg-gray-50"><FileText className="h-4 w-4"/> Sample Report</button>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border p-6 flex items-center"><div className="bg-blue-100 p-3 rounded-lg"><FileText className="h-6 w-6 text-blue-600"/></div><div className="ml-4"><div className="text-2xl font-bold">{reports.length}</div><div className="text-sm text-gray-600">Total Reports</div></div></div>
-        <div className="bg-white rounded-lg shadow-sm border p-6 flex items-center"><div className="bg-green-100 p-3 rounded-lg"><Send className="h-6 w-6 text-green-600"/></div><div className="ml-4"><div className="text-2xl font-bold">{reports.filter(r=>r.status==='Delivered').length}</div><div className="text-sm text-gray-600">Delivered</div></div></div>
-        <div className="bg-white rounded-lg shadow-sm border p-6 flex items-center"><div className="bg-orange-100 p-3 rounded-lg"><Calendar className="h-6 w-6 text-orange-600"/></div><div className="ml-4"><div className="text-2xl font-bold">{reports.filter(r=>r.generated_date===new Date().toISOString().split('T')[0]).length}</div><div className="text-sm text-gray-600">Today</div></div></div>
-        <div className="bg-white rounded-lg shadow-sm border p-6 flex items-center"><div className="bg-purple-100 p-3 rounded-lg"><User className="h-6 w-6 text-purple-600"/></div><div className="ml-4"><div className="text-2xl font-bold">{new Set(reports.map(r=>r.doctor)).size}</div><div className="text-sm text-gray-600">Doctors</div></div></div>
-      </div>
-      <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-        <div className="px-6 py-4 border-b flex flex-col gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"/>
-            <input value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} placeholder="Search by patient, email or report ID" className="pl-10 pr-4 py-2 w-full border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+            <p className="text-gray-600 mt-1">Generate and manage lab reports</p>
           </div>
-          <div className="flex flex-wrap gap-4">
-            <div className="flex items-center gap-2 text-sm"><span className="font-medium">Date:</span><select value={selectedDateRange} onChange={e=>setSelectedDateRange(e.target.value)} className="border px-2 py-1 rounded">{dateRanges.map(r=> <option key={r}>{r}</option>)}</select></div>
-            <div className="flex items-center gap-2 text-sm"><span className="font-medium">Status:</span><select value={selectedStatus} onChange={e=>setSelectedStatus(e.target.value)} className="border px-2 py-1 rounded">{statuses.map(s=> <option key={s}>{s}</option>)}</select></div>
-            <div className="flex items-center gap-2 text-sm"><span className="font-medium">Doctor:</span><select value={selectedDoctor} onChange={e=>setSelectedDoctor(e.target.value)} className="border px-2 py-1 rounded">{doctors.map(d=> <option key={d}>{d}</option>)}</select></div>
-            <div className="flex items-center gap-2 text-sm"><span className="font-medium">Test Type:</span><select value={selectedTestType} onChange={e=>setSelectedTestType(e.target.value)} className="border px-2 py-1 rounded">{testTypes.map(t=> <option key={t}>{t}</option>)}</select></div>
+
+          <button
+            onClick={loadApprovedResults}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="p-6">
+        {/* Filters */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search patient, test, sample..."
+                className="w-full pl-10 pr-3 py-2 border rounded-lg"
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              />
+            </div>
+
+            <select
+              className="border rounded-lg px-3 py-2"
+              value={filters.dateFilter}
+              onChange={(e) => setFilters({ ...filters, dateFilter: e.target.value as DateFilter })}
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="all">All Dates</option>
+            </select>
+
+            <div className="flex space-x-2">
+              <button
+                onClick={selectAllOrders}
+                className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Select All
+              </button>
+              <button
+                onClick={clearSelection}
+                className="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Clear
+              </button>
+            </div>
           </div>
         </div>
-        {filtered.length>0 && (
-          <div className="px-6 py-3 border-b flex items-center bg-gray-50">
-            <input type="checkbox" checked={selectedReports.size===filtered.length && filtered.length>0} onChange={toggleSelectAll} className="h-4 w-4 text-blue-600 border-gray-300 rounded"/>
-            <span className="ml-2 text-sm text-gray-700">Select All ({filtered.length})</span>
-            {showBulkActions && (
-              <div className="ml-auto flex items-center gap-2 text-sm">
-                <span className="text-gray-600">{selectedReports.size} selected</span>
-                <button onClick={bulkEmail} className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700">Email</button>
-                <button onClick={bulkDownload} className="px-3 py-1.5 bg-green-600 text-white rounded-md text-xs hover:bg-green-700">Download</button>
-                <button onClick={()=>{ setSelectedReports(new Set()); setShowBulkActions(false); }} className="p-1 text-gray-400 hover:text-gray-600"><X className="h-4 w-4"/></button>
+
+        {/* Results Table */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Approved Results</h2>
+            {selectedOrders.size > 0 && (
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-600">{selectedOrders.size} selected</span>
+                <button
+                  onClick={generateReport}
+                  className="px-4 py-2 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center space-x-1"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Generate Reports</span>
+                </button>
               </div>
             )}
           </div>
-        )}
-        <div>
-          {groups.length===0 && <div className="p-12 text-center text-gray-500">No reports found</div>}
-          {groups.map(g => (
-            <div key={g.key} className="border-t first:border-t-0 border-gray-200">
-              <div className={`px-6 py-3 sticky top-0 bg-white border-b flex items-center justify-between ${g.isToday? 'border-green-400':'border-gray-200'}`}> 
-                <div className={`p-3 rounded-lg flex items-center justify-between w-full ${g.isToday?'bg-gradient-to-r from-green-50 to-blue-50 border border-green-200':'bg-gray-50 border border-gray-200'}`}> 
-                  <h4 className={`text-sm font-semibold ${g.isToday?'text-green-800':'text-gray-700'}`}>{g.isToday? '📅 Today' : g.date.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</h4>
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className={`px-2 py-0.5 rounded-full ${g.isToday?'bg-green-100 text-green-800 border border-green-200':'bg-gray-100 text-gray-700 border border-gray-200'}`}>{g.reports.length} report{g.reports.length!==1?'s':''}</span>
-                    <span className={`px-2 py-0.5 rounded-full ${g.isToday?'bg-blue-100 text-blue-800 border border-blue-200':'bg-gray-100 text-gray-700 border border-gray-200'}`}>{g.reports.filter(r=>r.status==='Delivered').length} delivered</span>
-                  </div>
-                </div>
+
+          <div className="overflow-x-auto">
+            {loading ? (
+              <div className="p-8 text-center">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+                <p className="mt-2 text-gray-500">Loading approved results...</p>
               </div>
-              {g.reports.length===0 && g.isToday ? (
-                <div className="px-6 py-8 text-center text-gray-500 bg-gray-50">No reports generated today</div>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {g.reports.map(r => (
-                    <div key={r.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <input type="checkbox" checked={selectedReports.has(r.id)} onChange={()=>toggleSelect(r.id)} className="h-4 w-4 text-blue-600 border-gray-300 rounded"/>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
-                              <h4 className="text-sm font-semibold text-gray-900">🧪 {r.test_name || 'Test'} • <span className="text-blue-600">{r.report_type || 'Standard'}</span></h4>
-                            </div>
-                            <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
-                              <span>👤 {patientInfo(r)}</span>
-                              <span>• {r.patients?.email || 'No email'}</span>
-                              <span>• {new Date(r.generated_date).toLocaleDateString('en-GB')}</span>
-                              <span>• <span className="text-blue-600">#{shortId(r.id)}</span></span>
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge(r.status)}`}>{r.status}</span>
-                            </div>
+            ) : orderGroups.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                <FileText className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                <p>No approved results found</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Order
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Patient
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Tests
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Samples
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Order Date
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Approved By
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Approved At
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {orderGroups.map((group) => (
+                    <tr key={group.order_id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedOrders.has(group.order_id)}
+                          onChange={() => toggleOrderSelection(group.order_id)}
+                          className="rounded"
+                        />
+                        <div className="text-xs text-gray-500 mt-1">{group.order_id}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>
+                          <div className="font-medium text-gray-900">{group.patient_full_name}</div>
+                          <div className="text-sm text-gray-500">
+                            {group.age}y {group.gender}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button onClick={()=>setSelectedReport(r)} title="Preview" className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Eye className="h-4 w-4"/></button>
-                          <button onClick={()=>downloadReport(r.id)} title="Download PDF" className="p-2 text-green-600 hover:bg-green-50 rounded-lg disabled:opacity-50" disabled={downloading.has(r.id)}>{downloading.has(r.id)? <div className="h-4 w-4 border-2 border-green-600 border-t-transparent rounded-full animate-spin"/>:<Download className="h-4 w-4"/>}</button>
-                          <button onClick={()=>sendReport(r.id)} title="Send Email" className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg"><Send className="h-4 w-4"/></button>
-                          <button onClick={()=>printReport(r.id)} title="Print" className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg"><Printer className="h-4 w-4"/></button>
-                          {r.patients?.phone && <button onClick={()=>{/* whatsapp share placeholder */}} title="WhatsApp" className="p-2 text-green-600 hover:bg-green-50 rounded-lg"><MessageCircle className="h-4 w-4"/></button>}
-                          {r.patients?.phone && <button onClick={()=>window.open(`tel:${r.patients?.phone}`, '_self')} title="Call" className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Phone className="h-4 w-4"/></button>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div
+                          className="text-sm max-w-xs truncate"
+                          title={group.test_names.join(', ')}
+                        >
+                          {group.test_names.join(', ')}
                         </div>
-                      </div>
-                    </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm" title={group.sample_ids.join(', ')}>
+                          {group.sample_ids.join(', ')}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm">
+                          {group.order_date
+                            ? format(new Date(group.order_date), 'MMM d, yyyy')
+                            : '-'}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm">{group.verified_by || '-'}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm">
+                          {group.verified_at
+                            ? format(new Date(group.verified_at), 'MMM d, yyyy h:mm a')
+                            : '-'}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex space-x-2">
+                          <button
+                            className="text-blue-600 hover:text-blue-700 text-sm flex items-center space-x-1"
+                            onClick={() => handleView(group.order_id)}
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>View</span>
+                          </button>
+                          <button
+                            className="text-green-600 hover:text-green-700 text-sm flex items-center space-x-1"
+                            onClick={() => handleDownload(group.order_id)}
+                          >
+                            <Download className="w-4 h-4" />
+                            <span>Download</span>
+                          </button>
+                          {(group.results[0] as ApprovedResult)?.has_report && (
+                            <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                              Report Generated
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="px-6 py-4 border-t bg-gray-50 text-sm text-gray-600">📄 Total Reports: <span className="font-medium">{filtered.length}</span></div>
-      </div>
-      {selectedReport && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="font-semibold">Report Preview</h2>
-              <button onClick={()=>setSelectedReport(null)} className="p-1 text-gray-500 hover:text-gray-700"><X className="h-5 w-5"/></button>
-            </div>
-            <div className="p-6 text-sm space-y-4">
-              <div className="flex justify-between">
-                <div>
-                  <div className="font-semibold text-gray-700">Patient</div>
-                  <div>{patientInfo(selectedReport)}</div>
-                  <div>{selectedReport.patients?.email || 'No email'}</div>
-                </div>
-                <div>
-                  <div className="font-semibold text-gray-700">Report</div>
-                  <div>ID: {selectedReport.id}</div>
-                  <div>Date: {selectedReport.generated_date}</div>
-                  <div>Status: {selectedReport.status}</div>
-                </div>
-              </div>
-              <div className="border rounded p-4 bg-gray-50">PDF preview placeholder...</div>
-              <div className="flex justify-end gap-2">
-                <button onClick={()=>downloadReport(selectedReport.id)} className="px-3 py-1.5 bg-green-600 text-white rounded-md text-xs">Download</button>
-                <button onClick={()=>sendReport(selectedReport.id)} className="px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs">Email</button>
-                <button onClick={()=>printReport(selectedReport.id)} className="px-3 py-1.5 bg-orange-600 text-white rounded-md text-xs">Print</button>
-              </div>
-            </div>
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

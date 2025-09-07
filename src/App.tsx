@@ -15,6 +15,7 @@ import PeripheralSmearDemo from './components/Workflows/PeripheralSmearDemo';
 import Billing from './pages/Billing';
 import CashReconciliation from './pages/CashReconciliation';
 import AITools from './pages/AITools';
+import ResultsVerification from './pages/ResultsVerification';
 import Settings from './pages/Settings';
 
 const AppRoutes: React.FC = () => {
@@ -51,6 +52,7 @@ const AppRoutes: React.FC = () => {
               <Route path="/tests" element={<Tests />} />
               <Route path="/orders" element={<Orders />} />
               <Route path="/results" element={<Results />} />
+              <Route path="/results-verification" element={<ResultsVerification />} />
               <Route path="/reports" element={<Reports />} />
               {/* Dev workflow demo route (no DB changes) */}
               <Route path="/workflow-demo/peripheral-smear" element={<PeripheralSmearDemo />} />

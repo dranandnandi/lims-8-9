@@ -23,6 +23,7 @@ interface EnhancedOrdersPageProps {
   onAddOrder: (formData: any) => Promise<void>;
   onUpdateStatus: (orderId: string, newStatus: string) => Promise<void>;
   onRefreshOrders?: () => Promise<void>;
+  onViewOrderDetails?: (order: Order) => void;
   onNewSession?: () => void;
   onNewPatientVisit?: () => void;
 }
@@ -43,13 +44,15 @@ interface PatientVisitCardProps {
   onAddTests: (orderId: string) => void;
   onCreateFollowUp: (parentOrderId: string) => void;
   onViewActivity: (visitGroupId: string) => void;
+  onViewOrderDetails?: (order: Order) => void;
 }
 
 const PatientVisitCard: React.FC<PatientVisitCardProps> = ({
   visit,
   onAddTests,
   onCreateFollowUp,
-  onViewActivity
+  onViewActivity,
+  onViewOrderDetails
 }) => {
   const [expanded, setExpanded] = useState(false);
   

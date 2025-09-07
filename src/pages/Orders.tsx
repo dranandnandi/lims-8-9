@@ -591,6 +591,7 @@ const Orders: React.FC = () => {
           onAddOrder={handleAddOrder}
           onUpdateStatus={handleUpdateOrderStatus}
           onRefreshOrders={fetchOrders}
+          onViewOrderDetails={setSelectedOrder}
           onNewSession={() => {
             // Logic for creating a new session
             console.log('Creating new session...');
@@ -960,6 +961,17 @@ const Orders: React.FC = () => {
                             {new Date(order.expected_date) < new Date() && ' ⚠️ OVERDUE'}
                           </div>
                         </div>
+                        
+                        {/* View Full Details Button - Always Visible */}
+                        <div className="mt-3">
+                          <button
+                            onClick={() => setSelectedOrder(order)}
+                            className="flex items-center px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            View Full Details
+                          </button>
+                        </div>
                       </div>
                     </div>
                     
@@ -1076,14 +1088,6 @@ const Orders: React.FC = () => {
                       {/* Secondary Action Buttons */}
                       <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
                         <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => setSelectedOrder(order)}
-                            className="flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Full Details
-                          </button>
-                          
                           <button
                             onClick={() => {
                               // AI Analysis functionality - opens order details modal

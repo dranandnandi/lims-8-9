@@ -749,10 +749,30 @@ export const database = {
       }
 
       if (result && values && values.length > 0) {
+        // First, get all analytes to map parameter names to analyte_ids
+        const { data: analytes, error: analytesError } = await supabase
+          .from('analytes')
+          .select('id, name');
+        
+        if (analytesError) {
+          console.error('Error fetching analytes:', analytesError);
+          return { data: null, error: analytesError };
+        }
+
+        // Create a map of analyte names to IDs
+        const analyteMap = new Map(analytes?.map(a => [a.name, a.id]) || []);
+
         const resultValuesToInsert = values.map((val: any) => ({
-          ...val,
           result_id: result.id,
+          order_id: result.order_id, // Add order_id for trigger compatibility
+          analyte_id: analyteMap.get(val.parameter) || null, // Map parameter name to analyte_id
+          parameter: val.parameter, // Keep parameter name as well
+          value: val.value,
+          unit: val.unit,
+          reference_range: val.reference_range,
+          flag: val.flag,
         }));
+        
         const { error: valuesError } = await supabase
           .from('result_values')
           .insert(resultValuesToInsert);
@@ -801,9 +821,28 @@ export const database = {
         }
 
         // Then insert the new result_values
+        // First, get all analytes to map parameter names to analyte_ids
+        const { data: analytes, error: analytesError } = await supabase
+          .from('analytes')
+          .select('id, name');
+        
+        if (analytesError) {
+          console.error('Error fetching analytes:', analytesError);
+          return { data: null, error: analytesError };
+        }
+
+        // Create a map of analyte names to IDs
+        const analyteMap = new Map(analytes?.map(a => [a.name, a.id]) || []);
+
         const resultValuesToInsert = values.map((val: any) => ({
-          ...val,
           result_id: id,
+          order_id: result.order_id, // Add order_id for trigger compatibility
+          analyte_id: analyteMap.get(val.parameter) || null, // Map parameter name to analyte_id
+          parameter: val.parameter, // Keep parameter name as well
+          value: val.value,
+          unit: val.unit,
+          reference_range: val.reference_range,
+          flag: val.flag,
         }));
         
         const { error: valuesError } = await supabase

@@ -521,49 +521,105 @@ const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     }
   };
 
-  const handleSubmitResults = () => {
+  const handleSubmitResults = async () => {
     const validResults = manualValues.filter(v => v.value.trim() !== '');
-    if (!validResults.length) { alert('Please enter at least one test result.'); return; }
+    if (!validResults.length) { 
+      alert('Please enter at least one test result.'); 
+      return; 
+    }
 
     setSubmittingResults(true);
+    setSaveMessage(null);
 
     try {
-      const resultData = {
-        order_id: order.id,
-        patient_name: order.patient_name,
-        patient_id: order.patient_id,
-        test_name: order.tests.join(', '),
-        status: 'Under Review' as const,
-        entered_by: user?.user_metadata?.full_name || user?.email || 'Unknown User',
-        entered_date: new Date().toISOString().split('T')[0],
-        values: validResults.map(item => ({
-          parameter: item.parameter,
-          value: item.value,
-          unit: item.unit,
-          reference_range: item.reference,
-          flag: item.flag
-        }))
-      };
+      // Group results by test name for better organization
+      const testGroups = validResults.reduce((acc, result) => {
+        const testName = result.parameter.split(' - ')[0] || order.tests[0] || 'General Test';
+        if (!acc[testName]) acc[testName] = [];
+        acc[testName].push(result);
+        return acc;
+      }, {} as Record<string, typeof validResults>);
 
-      if (existingResultId) {
-        database.results.update(existingResultId, resultData)
-          .then(({ error }) => {
-            if (!error) onSubmitResults(order.id, validResults);
-            setSubmittingResults(false);
-          })
-          .catch(() => setSubmittingResults(false));
-      } else {
-        database.results.create(resultData)
-          .then(({ data, error }) => {
-            if (!error) {
-              setExistingResultId(data.id);
-              onSubmitResults(order.id, validResults);
+      let successCount = 0;
+      let errorCount = 0;
+
+      // Process each test group
+      for (const [testName, testResults] of Object.entries(testGroups)) {
+        try {
+          // Use the new insert_or_update_result function
+          const { data: resultId, error } = await supabase
+            .rpc('insert_or_update_result', {
+              p_order_id: order.id,
+              p_test_name: testName,
+              p_patient_id: order.patient_id,
+              p_patient_name: order.patient_name,
+              p_entered_by: user?.email || 'Unknown',
+              p_value: testResults.length === 1 ? testResults[0].value : 'Multiple values',
+              p_unit: testResults.length === 1 ? testResults[0].unit : '',
+              p_reference_range: testResults.length === 1 ? testResults[0].reference : '',
+              p_flag: testResults.length === 1 ? testResults[0].flag : null,
+              p_attachment_id: attachmentId || null,
+              p_technician_notes: `AI processed results: ${testResults.map(r => `${r.parameter}: ${r.value}`).join(', ')}`
+            });
+
+          if (error) {
+            console.error(`Error saving result for ${testName}:`, error);
+            errorCount++;
+            continue;
+          }
+
+          // Save individual analyte values if multiple results for this test
+          if (testResults.length > 1 && resultId) {
+            // Delete existing values first
+            await supabase
+              .from('result_values')
+              .delete()
+              .eq('result_id', resultId);
+
+            // Insert new values
+            const valuesToInsert = testResults.map((result, index) => ({
+              result_id: resultId,
+              analyte_name: result.parameter,
+              value: result.value,
+              unit: result.unit || '',
+              reference_range: result.reference || '',
+              flag: result.flag || null,
+              sequence_number: index + 1
+            }));
+
+            const { error: valuesError } = await supabase
+              .from('result_values')
+              .insert(valuesToInsert);
+
+            if (valuesError) {
+              console.error('Error saving analyte values:', valuesError);
             }
-            setSubmittingResults(false);
-          })
-          .catch(() => setSubmittingResults(false));
+          }
+
+          successCount++;
+        } catch (testError) {
+          console.error(`Error processing test ${testName}:`, testError);
+          errorCount++;
+        }
       }
-    } catch {
+
+      // Show appropriate message
+      if (successCount > 0 && errorCount === 0) {
+        setSaveMessage(`Successfully saved ${successCount} test result(s)!`);
+        setTimeout(() => onSubmitResults(order.id, validResults), 500);
+      } else if (successCount > 0 && errorCount > 0) {
+        setSaveMessage(`Saved ${successCount} test(s), ${errorCount} failed. Check console for details.`);
+        setTimeout(() => onSubmitResults(order.id, validResults), 500);
+      } else {
+        setSaveMessage('Failed to save results. Please try again.');
+      }
+      
+      setTimeout(() => setSaveMessage(null), 5000);
+    } catch (err) {
+      console.error('Error submitting results:', err);
+      setSaveMessage('Failed to submit results. Please try again.');
+      setTimeout(() => setSaveMessage(null), 5000);
+    } finally {
       setSubmittingResults(false);
     }
   };
