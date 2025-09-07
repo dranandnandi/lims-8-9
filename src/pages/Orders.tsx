@@ -8,7 +8,6 @@ import OrderForm from '../components/Orders/OrderForm';
 import OrderDetailsModal from '../components/Orders/OrderDetailsModal';
 import EnhancedOrders from '../components/Orders/EnhancedOrdersPage';
 import AIUtilityButton from '../components/AITools/AIUtilityButton';
-import AIResultEntry from '../components/AITools/AIResultEntry';
 
 interface ExtractedValue {
   parameter: string;
@@ -72,8 +71,6 @@ const Orders: React.FC = () => {
   const [selectedCompletion, setSelectedCompletion] = useState('All');
   const [showOrderForm, setShowOrderForm] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [showAIResultEntry, setShowAIResultEntry] = useState(false);
-  const [aiResultEntryOrderId, setAIResultEntryOrderId] = useState<string | null>(null);
 
   // Load orders from localStorage on component mount
   React.useEffect(() => {
@@ -559,16 +556,14 @@ const Orders: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
-              // Global AI Result Entry functionality
-              console.log('Global AI Result Entry clicked');
-              // For global access, we could show a list of orders to select from
-              // or default to the first order, etc. For now, just log
+              // Global AI Analysis functionality
+              console.log('Global AI Analysis clicked');
             }}
             className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            title="AI Result Entry"
+            title="AI Analysis"
           >
             <Brain className="h-5 w-5 mr-2" />
-            AI Result Entry
+            AI Analysis
           </button>
           <AIUtilityButton
             context={{
@@ -1091,15 +1086,14 @@ const Orders: React.FC = () => {
                           
                           <button
                             onClick={() => {
-                              // AI Result Entry for specific order
-                              setAIResultEntryOrderId(order.id);
-                              setShowAIResultEntry(true);
+                              // AI Analysis functionality - opens order details modal
+                              setSelectedOrder(order);
                             }}
                             className="flex items-center px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                            title="AI Result Entry"
+                            title="AI Analysis"
                           >
                             <Brain className="h-4 w-4 mr-2" />
-                            AI Result Entry
+                            AI Analysis
                           </button>
                           
                           <AIUtilityButton
@@ -1242,18 +1236,6 @@ const Orders: React.FC = () => {
           onClose={() => setSelectedOrder(null)}
           onUpdateStatus={handleUpdateOrderStatus}
           onSubmitResults={handleSubmitOrderResults}
-        />
-      )}
-
-      {/* AI Result Entry Modal */}
-      {showAIResultEntry && aiResultEntryOrderId && (
-        <AIResultEntry
-          isOpen={showAIResultEntry}
-          onClose={() => {
-            setShowAIResultEntry(false);
-            setAIResultEntryOrderId(null);
-          }}
-          orderId={aiResultEntryOrderId}
         />
       )}
     </div>
