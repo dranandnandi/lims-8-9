@@ -76,41 +76,49 @@ const PatientVisitCard: React.FC<PatientVisitCardProps> = ({
 
   const primaryOrder = visit.orders.find(o => o.order_type === 'initial') || visit.orders[0];
 
-  // Sort orders by creation time (newest first) right before rendering
+  // Sort orders by sample ID number (newest/highest first) with clear debugging
   const sortedOrders = [...visit.orders].sort((a, b) => {
     // Function to extract sample number from sample_id or visit_group_id
     const extractSampleNumber = (order: any) => {
       // First try to extract number from sample_id (e.g., "06-Sep-2025-004" -> 4)
       const sampleIdMatch = order.sample_id?.match(/-(\d+)$/);
       if (sampleIdMatch) {
-        return parseInt(sampleIdMatch[1]);
+        const num = parseInt(sampleIdMatch[1]);
+        console.log(`Sample ID ${order.sample_id} -> number: ${num}`);
+        return num;
       }
       
       // Try to extract number from visit_group_id (e.g., "sample-06-Sep-2025-004" -> 4)
       const visitGroupIdMatch = order.visit_group_id?.match(/-(\d+)$/);
       if (visitGroupIdMatch) {
-        return parseInt(visitGroupIdMatch[1]);
+        const num = parseInt(visitGroupIdMatch[1]);
+        console.log(`Visit Group ID ${order.visit_group_id} -> number: ${num}`);
+        return num;
       }
       
       // Try to extract number from order.id if it has a pattern
-      const orderIdMatch = order.id?.match(/-(\d+)$/);
+      const orderIdMatch = order.id?.match(/(\d+)$/);
       if (orderIdMatch) {
-        return parseInt(orderIdMatch[1]);
+        const num = parseInt(orderIdMatch[1]);
+        console.log(`Order ID ${order.id} -> number: ${num}`);
+        return num;
       }
       
-      // Fallback to 0 if no number found
+      console.log(`No number found for order ${order.id}, using 0`);
       return 0;
     };
     
-    // First try to sort by sample number (newest sample number first)
+    // First try to sort by sample number (HIGHEST numbers first - newest)
     const sampleNumA = extractSampleNumber(a);
     const sampleNumB = extractSampleNumber(b);
     
     if (sampleNumA !== sampleNumB) {
-      return sampleNumB - sampleNumA; // Higher numbers first (newest)
+      const result = sampleNumB - sampleNumA; // Higher numbers first (4, 3, 2, 1)
+      console.log(`Sorting: ${sampleNumB} - ${sampleNumA} = ${result}`);
+      return result;
     }
     
-    // If sample numbers are same, fallback to timestamp sorting
+    // If sample numbers are same, fallback to timestamp sorting (newest first)
     const timeA = a.created_at || a.order_date;
     const timeB = b.created_at || b.order_date;
     const timestampA = new Date(timeA).getTime();
@@ -198,57 +206,84 @@ const PatientVisitCard: React.FC<PatientVisitCardProps> = ({
             Order Chain ({sortedOrders.length} orders)
           </h4>
           
-          <div className="space-y-2">
-            {sortedOrders.map((order) => (
-              <div key={order.id} className="flex items-center p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
-                {/* Left: Order Icon & ID */}
-                <div className="flex items-center space-x-2 min-w-0 flex-shrink-0">
-                  <span className="text-lg">{getOrderTypeIcon(order.order_type)}</span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-gray-900 truncate">
-                      Order #{order.id.substring(0, 8)}
+          <div className="space-y-3">
+            {sortedOrders.map((order, index) => (
+              <div key={order.id} className="w-full p-4 bg-white rounded-lg border-2 border-gray-200 hover:border-blue-300 hover:shadow-md transition-all duration-200">
+                {/* Full Width Horizontal Layout */}
+                <div className="flex items-center justify-between w-full">
+                  {/* Left Section: Sequence & Order Info */}
+                  <div className="flex items-center space-x-4">
+                    {/* Sequence Number */}
+                    <div className="flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-700 rounded-full font-bold text-sm border-2 border-blue-200">
+                      {index + 1}
                     </div>
-                    <div className="text-xs text-gray-500">
-                      {order.order_type} {order.sample_id && `• ${order.sample_id.split('-').pop()}`}
+                    
+                    {/* Order Icon & ID */}
+                    <div className="flex items-center space-x-3">
+                      <span className="text-2xl">{getOrderTypeIcon(order.order_type)}</span>
+                      <div>
+                        <div className="text-lg font-bold text-gray-900">
+                          Order #{order.id.substring(0, 8)}
+                        </div>
+                        <div className="text-sm text-gray-600 flex items-center space-x-2">
+                          <span className="capitalize font-medium">{order.order_type}</span>
+                          {order.sample_id && (
+                            <>
+                              <span>•</span>
+                              <span className="bg-gray-100 px-2 py-1 rounded text-xs font-mono">
+                                ID: {order.sample_id.split('-').pop()}
+                              </span>
+                            </>
+                          )}
+                          {order.parent_order_id && (
+                            <>
+                              <span>•</span>
+                              <span className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded border">
+                                ↳ Linked Order
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Center: Tests & Amount */}
-                <div className="flex-1 px-4 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs text-gray-600 truncate">
-                      {order.tests.length} tests • ₹{order.total_amount.toLocaleString()}
+                  {/* Center Section: Tests & Details */}
+                  <div className="flex-1 px-6">
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-gray-900">
+                        ₹{order.total_amount.toLocaleString()}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        {order.tests.length} test{order.tests.length !== 1 ? 's' : ''}
+                      </div>
+                      {order.tests.length > 0 && (
+                        <div className="text-xs text-blue-600 mt-1 max-w-xs truncate">
+                          {order.tests.slice(0, 3).join(', ')}
+                          {order.tests.length > 3 && (
+                            <span className="text-gray-500"> +{order.tests.length - 3} more</span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {order.parent_order_id && (
-                      <span className="text-xs text-gray-500 bg-white px-1 py-0.5 rounded border ml-2 flex-shrink-0">
-                        ↳ Linked
-                      </span>
+                  </div>
+                  
+                  {/* Right Section: Status & Actions */}
+                  <div className="flex items-center space-x-3">
+                    <span className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${getStatusColor(order.status)}`}>
+                      {order.status}
+                    </span>
+                    
+                    {order.can_add_tests && (
+                      <button
+                        onClick={() => onAddTests(order.id)}
+                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors border-2 border-green-200 hover:border-green-300"
+                        title="Add tests to this order"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
                     )}
                   </div>
-                  {order.tests.length > 0 && (
-                    <div className="text-xs text-blue-600 mt-1 truncate">
-                      <strong>Tests:</strong> {order.tests.slice(0, 2).join(', ')}
-                      {order.tests.length > 2 && <span className="text-gray-500"> +{order.tests.length - 2}</span>}
-                    </div>
-                  )}
-                </div>
-                
-                {/* Right: Status & Actions */}
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(order.status)}`}>
-                    {order.status}
-                  </span>
-                  
-                  {order.can_add_tests && (
-                    <button
-                      onClick={() => onAddTests(order.id)}
-                      className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
-                      title="Add tests to this order"
-                    >
-                      <Plus className="h-3 w-3" />
-                    </button>
-                  )}
                 </div>
               </div>
             ))}
