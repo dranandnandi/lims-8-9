@@ -486,6 +486,49 @@ export const generatePDFWithAPI = async (reportData: ReportData): Promise<string
     console.log('PDF generated successfully:', result.url);
     return result.url;
   } catch (error) {
+    console.error('PDF.co generation failed:', error);
+    throw error;
+  }
+};
+
+// Fallback PDF generation using browser print
+export const generatePDFWithBrowser = (reportData: ReportData): string => {
+  console.log('Generating PDF with browser fallback...');
+  
+  const htmlContent = generateUniversalHTMLTemplate(reportData);
+  const blob = new Blob([htmlContent], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  
+  console.log('Browser PDF blob created');
+  return url;
+};
+
+// Save PDF to Supabase storage
+export const savePDFToStorage = async (pdfBlob: Blob, orderId: string): Promise<string> => {
+  console.log('Saving PDF to Supabase storage...');
+  
+  try {
+    const fileName = `reports/${orderId}_${Date.now()}.pdf`;
+    
+    const { data, error } = await supabase.storage
+      .from('reports')
+      .upload(fileName, pdfBlob, {
+        contentType: 'application/pdf',
+        cacheControl: '3600',
+        upsert: true
+      });
+
+    if (error) {
+      throw error;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('reports')
+      .getPublicUrl(fileName);
+
+    console.log('PDF saved to storage:', publicUrl);
+    return publicUrl;
+  } catch (error) {
     console.error('Failed to save PDF to storage:', error);
     throw error;
   }
@@ -522,16 +565,12 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
   
   try {
     // Check if PDF already exists
-    const { data: existingReport, error: fetchError } = await supabase
+    const { data: existingReport } = await supabase
       .from('reports')
       .select('pdf_url, pdf_generated_at')
       .eq('order_id', orderId)
-      .maybeSingle();
+      .single();
 
-    if (fetchError) {
-      console.warn('Error fetching existing report:', fetchError);
-    }
-    
     if (existingReport?.pdf_url) {
       console.log('PDF already exists:', existingReport.pdf_url);
       
@@ -586,20 +625,8 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
 
     return storageUrl;
   } catch (error) {
-    console.error('PDF generation failed, using emergency fallback:', error);
-    
-    // Emergency fallback: Generate HTML content and create blob URL
-    try {
-      const htmlContent = generateHTMLReport(reportData);
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const blobUrl = URL.createObjectURL(blob);
-      
-      console.log('Emergency fallback successful:', blobUrl);
-      return blobUrl;
-    } catch (fallbackError) {
-      console.error('All fallback methods failed:', fallbackError);
-      return null;
-    }
+    console.error('PDF generation and save failed:', error);
+    return null;
   }
 }
 
