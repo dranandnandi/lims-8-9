@@ -484,63 +484,7 @@ export const generatePDFWithAPI = async (reportData: ReportData): Promise<string
     }
 
     console.log('PDF generated successfully:', result.url);
-    // Generate HTML content for fallback
-    const htmlContent = generateHTMLReport(reportData);
-    
-    // Try to upload to Supabase storage first
-    try {
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const fileName = `reports/${orderId}_${Date.now()}.html`;
-      
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('reports')
-        .upload(fileName, blob, {
-          contentType: 'text/html',
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.warn('Storage upload failed, using fallback:', uploadError);
-        throw uploadError;
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('reports')
-        .getPublicUrl(fileName);
-
-      // Try to update database
-      try {
-        const { error: updateError } = await supabase
-          .from('reports')
-          .upsert({
-            order_id: orderId,
-            patient_id: reportData.patient.id,
-            pdf_url: publicUrl,
-            pdf_generated_at: new Date().toISOString(),
-            status: 'completed'
-          });
-
-        if (updateError) {
-          console.warn('Database update failed, but file uploaded:', updateError);
-        }
-      } catch (dbError) {
-        console.warn('Database update failed due to RLS policy:', dbError);
-      }
-
-      console.log('PDF generated and saved successfully:', publicUrl);
-      return publicUrl;
-    } catch (storageError) {
-      console.warn('Storage operation failed, using browser fallback:', storageError);
-      
-      // Fallback: Create blob URL for immediate viewing
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const blobUrl = URL.createObjectURL(blob);
-      
-      console.log('Using browser blob URL as fallback:', blobUrl);
-      return blobUrl;
-    }
+    return result.url;
   } catch (error) {
     console.error('Failed to save PDF to storage:', error);
     throw error;
@@ -587,6 +531,7 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
     if (fetchError) {
       console.warn('Error fetching existing report:', fetchError);
     }
+    
     if (existingReport?.pdf_url) {
       console.log('PDF already exists:', existingReport.pdf_url);
       
