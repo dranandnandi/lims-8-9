@@ -565,12 +565,15 @@ export async function generateAndSavePDFReport(orderId: string, reportData: Repo
   
   try {
     // Check if PDF already exists
-    const { data: existingReport } = await supabase
+    const { data: existingReport, error: fetchError } = await supabase
       .from('reports')
       .select('pdf_url, pdf_generated_at')
       .eq('order_id', orderId)
-      .single();
+      .maybeSingle();
 
+    if (fetchError) {
+      console.warn('Error fetching existing report:', fetchError);
+    }
     if (existingReport?.pdf_url) {
       console.log('PDF already exists:', existingReport.pdf_url);
       
